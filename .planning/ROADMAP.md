@@ -53,7 +53,7 @@
 ---
 
 <details>
-<summary>🚧 v4.3 downloadWallpaperFile 分层重构 (Phase 38) — SHIPPED 2026-05-02</summary>
+<summary>✅ v4.3 downloadWallpaperFile 分层重构 (Phase 38) — SHIPPED 2026-05-02</summary>
 
 - [x] Phase 38: downloadWallpaperFile 分层重构与重复下载检测 (2/2 plans) — completed 2026-05-02
 
@@ -95,7 +95,7 @@ Plans:
 <details>
 <summary>🚧 v5.0 electron-store 到 SQLite 迁移 (Phases 41-45) — PLANNING</summary>
 
-- [ ] **Phase 41: Database Infrastructure** (0 plans) — Core database connection, schema, and utilities
+- [ ] **Phase 41: Database Infrastructure** (2 plans) — Core database connection, schema, and utilities
 - [ ] **Phase 42: Main Process + Store Handler Cutover** (0 plans) — All generic store access backed by SQLite
 - [ ] **Phase 43: Favorites & Collections Migration** (0 plans) — Targeted SQL operations for favorites
 - [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
@@ -116,7 +116,9 @@ Plans:
   2. All 5 tables (settings, search_params, download_history, collections, favorites) created with correct schema, foreign keys, and indexes
   3. WAL mode is enabled on the database connection
   4. withTransaction() utility correctly commits or rolls back multi-write operations
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 41-01-PLAN.md — Foundation: node:sqlite type declarations (sqlite.d.ts) + package.json engines update
+- [ ] 41-02-PLAN.md — Database module: database.ts (singleton, schema, withTransaction, WAL checkpoint) + index.ts integration
 
 ### Phase 42: Main Process + Store Handler Cutover
 **Goal**: All generic store access (direct imports + generic IPC handlers + repositories) backed by SQLite
@@ -182,7 +184,7 @@ Plans:
 | 38. downloadWallpaperFile 分层重构 | v4.3 | 2/2 | Complete | 2026-05-02 |
 | 39. 收藏状态小红心逻辑与取消收藏功能 | v4.4 | 2/2 | Complete | 2026-05-02 |
 | 40. 在线壁纸页面小红心多收藏夹状态区分 | v4.5 | 3/3 | Complete | 2026-05-02 |
-| 41. Database Infrastructure | v5.0 | 0/0 | Not started | - |
+| 41. Database Infrastructure | v5.0 | 0/2 | Not started | - |
 | 42. Main Process + Store Handler Cutover | v5.0 | 0/0 | Not started | - |
 | 43. Favorites & Collections Migration | v5.0 | 0/0 | Not started | - |
 | 44. Migration Script | v5.0 | 0/0 | Not started | - |
