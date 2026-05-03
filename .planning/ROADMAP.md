@@ -96,7 +96,7 @@ Plans:
 <summary>🚧 v5.0 electron-store 到 SQLite 迁移 (Phases 41-45) — EXECUTING</summary>
 
 - [x] **Phase 41: Database Infrastructure** (2/2 plans) — Core database connection, schema, and utilities
-- [ ] **Phase 42: Main Process + Store Handler Cutover** (0 plans) — All generic store access backed by SQLite
+- [ ] **Phase 42: Main Process + Store Handler Cutover** (2 plans) — All generic store access backed by SQLite
 - [ ] **Phase 43: Favorites & Collections Migration** (0 plans) — Targeted SQL operations for favorites
 - [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
 - [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
@@ -130,7 +130,10 @@ Plans:
   3. store-get/store-set/store-delete/store-clear IPC handlers query/upsert/delete from SQLite tables
   4. SettingsRepository, WallpaperRepository, DownloadRepository all route through SQLite via unchanged IPC
   5. Download history max-50 constraint enforced by SQL (not application code)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ### Phase 43: Favorites & Collections Migration
 **Goal**: FavoritesRepository redesigned to use targeted SQL operations instead of full-blob read-modify-write
@@ -141,7 +144,10 @@ Plans:
   2. Favorite existence check uses SQL index query (not in-memory Set from full blob)
   3. All favorites operations (add, remove, move, check) produce correct results via SQL queries
   4. Multiple collections per wallpaper still supported after migration
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ### Phase 44: Migration Script
 **Goal**: One-time migration from electron-store to SQLite; idempotent and data-safe
@@ -152,7 +158,10 @@ Plans:
   2. Migration creates a backup copy of electron-store file before any SQLite writes
   3. Migration is idempotent — guarded by _migrated_from_store flag, safe to re-run if interrupted
   4. Existing settings, search params, download history, and favorites survive migration without data loss
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ### Phase 45: Cleanup & Final Verification
 **Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
@@ -168,7 +177,10 @@ Plans:
   7. Application compiles and bundles without electron-store dependency (VER-05)
   8. Full functional verification: all features (settings, download, search, favorites) work (VER-01)
   9. App launches and initializes database within 500ms overhead (VER-03)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ---
 
@@ -185,7 +197,7 @@ Plans:
 | 39. 收藏状态小红心逻辑与取消收藏功能 | v4.4 | 2/2 | Complete | 2026-05-02 |
 | 40. 在线壁纸页面小红心多收藏夹状态区分 | v4.5 | 3/3 | Complete | 2026-05-02 |
 | 41. Database Infrastructure | v5.0 | 2/2 | Complete | 2026-05-03 |
-| 42. Main Process + Store Handler Cutover | v5.0 | 0/0 | Not started | - |
+| 42. Main Process + Store Handler Cutover | v5.0 | 0/2 | Not started | - |
 | 43. Favorites & Collections Migration | v5.0 | 0/0 | Not started | - |
 | 44. Migration Script | v5.0 | 0/0 | Not started | - |
 | 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |

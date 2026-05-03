@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 42 — Main Process + Store Handler Cutover
-Plan: 0 plans
-Status: Context gathered
-Last activity: 2026-05-03 — Phase 42 context gathered (4 gray areas discussed)
+Plans: 2 plans
+Status: Planned
+Last activity: 2026-05-03 — Phase 42 plans created (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
 
 ---
 
