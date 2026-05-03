@@ -3,19 +3,19 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: electron-store 到 SQLite 迁移
 status: executing
-last_updated: "2026-05-03T11:20:00.000Z"
+last_updated: "2026-05-03T11:24:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
-  percent: 8
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — executing Phase 41 Plan 01 complete
+> Current: Milestone v5.0 — Phase 41 Plan 02 complete (Phase 41 complete)
 > Status: Executing
 
 ---
@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 41 — Database Infrastructure
-Plan: 2 plans (41-01 Complete, 41-02 Pending)
-Status: 1/2 plans complete
-Last activity: 2026-05-03 — Completed 41-01: node:sqlite type declarations + engines update
+Plan: 2 plans (41-01 Complete, 41-02 Complete)
+Status: 2/2 plans complete
+Last activity: 2026-05-03 — Completed 41-02: Database module with singleton, schema, withTransaction, WAL checkpoint
 
 ---
 
@@ -44,8 +44,8 @@ Last activity: 2026-05-03 — Completed 41-01: node:sqlite type declarations + e
 | Total phases (v5.0) | 5 |
 | Completed phases | 0 |
 | Total plans | 2 |
-| Completed plans | 1 |
-| Overall progress | 8% |
+| Completed plans | 2 |
+| Overall progress | 100% |
 
 ---
 
@@ -78,11 +78,16 @@ Last activity: 2026-05-03 — Completed 41-01: node:sqlite type declarations + e
 **Key risks:**
 - `node:sqlite` is Node.js Stability 1.1 — API change risk. Mitigated by using only stable core API (prepare/get/all/run/exec) and Repository layer insulation. Fallback: `@photostructure/sqlite` with identical API.
 
-### Decisions (from 41-01)
+### Decisions (from 41-01 and 41-02)
 
 - "Use exact interface shapes per STACK.md spec adapted to CONVENTIONS.md: interface for RunResult/DatabaseOptions/ColumnInfo, type for BindParams"
 - "Engines.node set to >=24 (minimum) rather than a range — Electron 41 bundles Node.js 24.14.0+, CI runners support this"
+- "Lazy singleton initialization: export getDatabase() function, not top-level instance — database never opens at module import time"
+- "withTransaction() uses BEGIN IMMEDIATE to prevent SQLITE_BUSY from concurrent writes, rolls back on error, and propagates original exception"
+- "Periodic WAL checkpoint: 5-min PASSIVE interval with .unref(), TRUNCATE fallback on failure"
+- "WAL size monitor: 1-min interval, 10MB threshold triggers TRUNCATE auto-checkpoint"
+- "closeDatabase() runs final TRUNCATE checkpoint before closing connection"
 
 ---
 
-*Updated: 2026-05-03 — 41-01 Complete*
+*Updated: 2026-05-03 — Phase 41 Complete (41-02: Database module with singleton, schema, withTransaction, WAL checkpoint)*
