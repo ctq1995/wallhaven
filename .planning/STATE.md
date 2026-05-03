@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: electron-store 到 SQLite 迁移
-status: planning
-last_updated: "2026-05-03T00:00:00.000Z"
+status: executing
+last_updated: "2026-05-03T11:20:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 8
 ---
 
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — defined requirements, roadmap created
-> Status: Planning
+> Current: Milestone v5.0 — executing Phase 41 Plan 01 complete
+> Status: Executing
 
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 41 — Database Infrastructure (first phase of v5.0)
-Plan: 2 plans in 2 waves (41-01, 41-02)
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 41 plans created
+Phase: 41 — Database Infrastructure
+Plan: 2 plans (41-01 Complete, 41-02 Pending)
+Status: 1/2 plans complete
+Last activity: 2026-05-03 — Completed 41-01: node:sqlite type declarations + engines update
 
 ---
 
@@ -44,8 +44,8 @@ Last activity: 2026-05-03 — Phase 41 plans created
 | Total phases (v5.0) | 5 |
 | Completed phases | 0 |
 | Total plans | 2 |
-| Completed plans | 0 |
-| Overall progress | 0% |
+| Completed plans | 1 |
+| Overall progress | 8% |
 
 ---
 
@@ -78,6 +78,11 @@ Last activity: 2026-05-03 — Phase 41 plans created
 **Key risks:**
 - `node:sqlite` is Node.js Stability 1.1 — API change risk. Mitigated by using only stable core API (prepare/get/all/run/exec) and Repository layer insulation. Fallback: `@photostructure/sqlite` with identical API.
 
+### Decisions (from 41-01)
+
+- "Use exact interface shapes per STACK.md spec adapted to CONVENTIONS.md: interface for RunResult/DatabaseOptions/ColumnInfo, type for BindParams"
+- "Engines.node set to >=24 (minimum) rather than a range — Electron 41 bundles Node.js 24.14.0+, CI runners support this"
+
 ---
 
-*Updated: 2026-05-03 — v5.0 roadmap created*
+*Updated: 2026-05-03 — 41-01 Complete*

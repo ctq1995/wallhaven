@@ -8,7 +8,7 @@
 ### Database Infrastructure
 
 - [ ] **DBINFRA-01**: Create `electron/main/database.ts` with singleton `DatabaseSync` connection, lazy initialization, and proper shutdown
-- [ ] **DBINFRA-02**: Add TypeScript declaration file (`electron/main/sqlite.d.ts`) for `node:sqlite` module covering used API surface
+- [x] **DBINFRA-02**: Add TypeScript declaration file (`electron/main/sqlite.d.ts`) for `node:sqlite` module covering used API surface
 - [ ] **DBINFRA-03**: Define 5-table schema (`settings`, `search_params`, `download_history`, `collections`, `favorites`) with foreign keys, indexes, and WAL mode
 - [ ] **DBINFRA-04**: Implement `withTransaction()` utility for atomic multi-write operations
 - [ ] **DBINFRA-05**: Create one-time migration script that reads electron-store data and imports into SQLite in a single transaction
@@ -69,7 +69,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DBINFRA-01 | 41 | Pending |
-| DBINFRA-02 | 41 | Pending |
+| DBINFRA-02 | 41 | Complete |
 | DBINFRA-03 | 41 | Pending |
 | DBINFRA-04 | 41 | Pending |
 | DBINFRA-05 | 44 | Pending |
