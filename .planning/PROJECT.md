@@ -8,9 +8,17 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 **收藏管理，分类随心** — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
-## Current Milestone: All milestones complete
+## Current Milestone: v5.0 electron-store 到 SQLite 迁移
 
-All 40 phases have been completed. The project has achieved all planned milestones.
+**Goal:** 将持久化存储从 electron-store（JSON 文件）迁移到 SQLite（better-sqlite3），利用关系型数据库替代 JSON blob 存储，实现高效的部分更新和查询能力。
+
+**Target features:**
+- 引入 better-sqlite3 依赖，建立数据库连接与初始化
+- 设计数据库表结构（settings、search_params、download_history、collections、favorites）
+- 实现数据迁移脚本（从 electron-store JSON 导入 SQLite）
+- Repository 层改造（用 SQLite 查询替换 electron-store IPC 调用）
+- IPC 处理程序改造（同步读取迁移到 SQLite）
+- 移除 electron-store 依赖和旧代码
 
 **Shipped Milestones:**
 - v2.0 架构重构 (2026-04-26) — 38 requirements, 5 phases
@@ -75,9 +83,9 @@ All 40 phases have been completed. The project has achieved all planned mileston
 
 ### Active
 
-<!-- v4.0 and v4.1 shipped — requirements archived to milestones/ -->
+<!-- v5.0 milestone requirements — defined via /gsd-new-milestone -->
 
-Requirements for next milestone to be defined via `/gsd-new-milestone`.
+Requirements for v5.0 electron-store → SQLite migration to be defined.
 
 ### Future
 
@@ -252,4 +260,4 @@ This document evolves at phase transitions and milestone boundaries.
 ---
 
 *创建时间：2025-04-25*
-*最后更新：2026-05-02 v4.5 shipped — all phases complete*
+*最后更新：2026-05-03 — v5.0 milestone started*
