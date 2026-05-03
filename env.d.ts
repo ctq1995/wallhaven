@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+import type { Collection, FavoriteItem } from '@/types/favorite'
+import type { WallpaperItem } from '@/types/index'
+
 // 下载进度数据类型
 interface DownloadProgressData {
   taskId: string
@@ -149,6 +152,19 @@ interface ElectronAPI {
     stateFilesDeleted: number
     errors?: string[]
   }>
+
+  // Favorites & Collections
+  favoritesGetCollections: () => Promise<IpcResponse<Collection[]>>
+  favoritesCreateCollection: (params: { name: string }) => Promise<IpcResponse<Collection>>
+  favoritesRenameCollection: (params: { id: string; name: string }) => Promise<IpcResponse<Collection>>
+  favoritesDeleteCollection: (params: { id: string }) => Promise<IpcResponse<void>>
+  favoritesSetDefaultCollection: (params: { id: string }) => Promise<IpcResponse<Collection>>
+  favoritesGetByCollection: (params: { collectionId?: string }) => Promise<IpcResponse<FavoriteItem[]>>
+  favoritesAdd: (params: { wallpaperId: string; collectionId: string; wallpaperData: WallpaperItem }) => Promise<IpcResponse<FavoriteItem>>
+  favoritesRemove: (params: { wallpaperId: string; collectionId: string }) => Promise<IpcResponse<void>>
+  favoritesMove: (params: { wallpaperId: string; fromCollectionId: string; toCollectionId: string }) => Promise<IpcResponse<FavoriteItem>>
+  favoritesIsFavorite: (params: { wallpaperId: string }) => Promise<IpcResponse<boolean>>
+  favoritesGetCollectionsForWallpaper: (params: { wallpaperId: string }) => Promise<IpcResponse<Collection[]>>
 
   // 通用IPC通信
   send: (channel: string, data: any) => void

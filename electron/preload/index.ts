@@ -101,6 +101,19 @@ export interface ElectronAPI {
     errors?: string[]
   }>
 
+  // Favorites & Collections
+  favoritesGetCollections: () => Promise<IpcResponse<any[]>>
+  favoritesCreateCollection: (params: { name: string }) => Promise<IpcResponse<any>>
+  favoritesRenameCollection: (params: { id: string; name: string }) => Promise<IpcResponse<any>>
+  favoritesDeleteCollection: (params: { id: string }) => Promise<IpcResponse<void>>
+  favoritesSetDefaultCollection: (params: { id: string }) => Promise<IpcResponse<any>>
+  favoritesGetByCollection: (params: { collectionId?: string }) => Promise<IpcResponse<any[]>>
+  favoritesAdd: (params: { wallpaperId: string; collectionId: string; wallpaperData: any }) => Promise<IpcResponse<any>>
+  favoritesRemove: (params: { wallpaperId: string; collectionId: string }) => Promise<IpcResponse<void>>
+  favoritesMove: (params: { wallpaperId: string; fromCollectionId: string; toCollectionId: string }) => Promise<IpcResponse<any>>
+  favoritesIsFavorite: (params: { wallpaperId: string }) => Promise<IpcResponse<boolean>>
+  favoritesGetCollectionsForWallpaper: (params: { wallpaperId: string }) => Promise<IpcResponse<any[]>>
+
   // 通用IPC通信
   send: (channel: string, data: any) => void
   receive: (channel: string, func: (...args: any[]) => void) => void
@@ -258,6 +271,52 @@ const electronAPI: ElectronAPI = {
   cleanupOrphanFiles: (downloadPath: string) => {
     console.log('[Preload] cleanupOrphanFiles called, downloadPath:', downloadPath)
     return ipcRenderer.invoke(IPC_CHANNELS.CLEANUP_ORPHAN_FILES, downloadPath)
+  },
+
+  // Favorites & Collections
+  favoritesGetCollections: () => {
+    console.log('[Preload] favoritesGetCollections called')
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_COLLECTIONS)
+  },
+  favoritesCreateCollection: (params) => {
+    console.log('[Preload] favoritesCreateCollection called:', params.name)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_CREATE_COLLECTION, params)
+  },
+  favoritesRenameCollection: (params) => {
+    console.log('[Preload] favoritesRenameCollection called:', params.id, params.name)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_RENAME_COLLECTION, params)
+  },
+  favoritesDeleteCollection: (params) => {
+    console.log('[Preload] favoritesDeleteCollection called:', params.id)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_DELETE_COLLECTION, params)
+  },
+  favoritesSetDefaultCollection: (params) => {
+    console.log('[Preload] favoritesSetDefaultCollection called:', params.id)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_SET_DEFAULT_COLLECTION, params)
+  },
+  favoritesGetByCollection: (params) => {
+    console.log('[Preload] favoritesGetByCollection called:', params.collectionId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_BY_COLLECTION, params)
+  },
+  favoritesAdd: (params) => {
+    console.log('[Preload] favoritesAdd called:', params.wallpaperId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_ADD, params)
+  },
+  favoritesRemove: (params) => {
+    console.log('[Preload] favoritesRemove called:', params.wallpaperId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_REMOVE, params)
+  },
+  favoritesMove: (params) => {
+    console.log('[Preload] favoritesMove called:', params.wallpaperId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_MOVE, params)
+  },
+  favoritesIsFavorite: (params) => {
+    console.log('[Preload] favoritesIsFavorite called:', params.wallpaperId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_IS_FAVORITE, params)
+  },
+  favoritesGetCollectionsForWallpaper: (params) => {
+    console.log('[Preload] favoritesGetCollectionsForWallpaper called:', params.wallpaperId)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_COLLECTIONS_FOR_WALLPAPER, params)
   },
 
   // 通用IPC通信（保留示例功能）

@@ -57,6 +57,19 @@ export const IPC_CHANNELS = {
 
   // 孤儿文件清理
   CLEANUP_ORPHAN_FILES: 'cleanup-orphan-files',
+
+  // Favorites & Collections
+  FAVORITES_GET_COLLECTIONS: 'favorites-get-collections',
+  FAVORITES_CREATE_COLLECTION: 'favorites-create-collection',
+  FAVORITES_RENAME_COLLECTION: 'favorites-rename-collection',
+  FAVORITES_DELETE_COLLECTION: 'favorites-delete-collection',
+  FAVORITES_SET_DEFAULT_COLLECTION: 'favorites-set-default-collection',
+  FAVORITES_GET_BY_COLLECTION: 'favorites-get-by-collection',
+  FAVORITES_ADD: 'favorites-add',
+  FAVORITES_REMOVE: 'favorites-remove',
+  FAVORITES_MOVE: 'favorites-move',
+  FAVORITES_IS_FAVORITE: 'favorites-is-favorite',
+  FAVORITES_GET_COLLECTIONS_FOR_WALLPAPER: 'favorites-get-collections-for-wallpaper',
 } as const
 
 // ==================== IPC 响应类型 ====================

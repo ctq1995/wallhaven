@@ -14,6 +14,7 @@ import { registerWindowHandlers } from './window.handler'
 import { registerCacheHandlers } from './cache.handler'
 import { registerApiHandlers } from './api.handler'
 import { registerStoreHandlers } from './store.handler'
+import { registerFavoritesHandlers } from './favorites.handler'
 
 /**
  * All registered IPC channel names
@@ -49,6 +50,18 @@ export const REGISTERED_CHANNELS = [
   'store-set',
   'store-delete',
   'store-clear',
+  // Favorites & Collections
+  'favorites-get-collections',
+  'favorites-create-collection',
+  'favorites-rename-collection',
+  'favorites-delete-collection',
+  'favorites-set-default-collection',
+  'favorites-get-by-collection',
+  'favorites-add',
+  'favorites-remove',
+  'favorites-move',
+  'favorites-is-favorite',
+  'favorites-get-collections-for-wallpaper',
   // Cache management
   'clear-app-cache',
   'get-cache-info',
@@ -67,6 +80,7 @@ export function registerAllHandlers(): void {
   registerCacheHandlers()
   registerApiHandlers()
   registerStoreHandlers()
+  registerFavoritesHandlers()
 
   console.log(`[IPC] Registered ${REGISTERED_CHANNELS.length} handlers`)
 }
