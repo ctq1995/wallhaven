@@ -315,13 +315,23 @@ class ElectronClientImpl {
   /**
    * 添加收藏项
    */
-  async favoritesAdd(wallpaperId: string, collectionId: string, wallpaperData: WallpaperItem): Promise<IpcResponse<FavoriteItem>> {
+  async favoritesAdd(
+    wallpaperId: string,
+    collectionId: string,
+    wallpaperData: WallpaperItem,
+  ): Promise<IpcResponse<FavoriteItem>> {
     if (!this.isAvailable()) {
       return this.createUnavailableResponse<FavoriteItem>()
     }
 
     try {
-      const result = await window.electronAPI.favoritesAdd({ wallpaperId, collectionId, wallpaperData })
+      // 将 Proxy 对象转换为纯 JSON 对象，避免 IPC 序列化错误
+      const plainWallpaperData = JSON.parse(JSON.stringify(wallpaperData))
+      const result = await window.electronAPI.favoritesAdd({
+        wallpaperId,
+        collectionId,
+        wallpaperData: plainWallpaperData,
+      })
       if (result.success) {
         return { success: true, data: result.data as FavoriteItem }
       }
@@ -365,13 +375,21 @@ class ElectronClientImpl {
   /**
    * 移动收藏项到其他收藏夹
    */
-  async favoritesMove(wallpaperId: string, fromCollectionId: string, toCollectionId: string): Promise<IpcResponse<FavoriteItem>> {
+  async favoritesMove(
+    wallpaperId: string,
+    fromCollectionId: string,
+    toCollectionId: string,
+  ): Promise<IpcResponse<FavoriteItem>> {
     if (!this.isAvailable()) {
       return this.createUnavailableResponse<FavoriteItem>()
     }
 
     try {
-      const result = await window.electronAPI.favoritesMove({ wallpaperId, fromCollectionId, toCollectionId })
+      const result = await window.electronAPI.favoritesMove({
+        wallpaperId,
+        fromCollectionId,
+        toCollectionId,
+      })
       if (result.success) {
         return { success: true, data: result.data as FavoriteItem }
       }
@@ -417,7 +435,9 @@ class ElectronClientImpl {
   /**
    * 获取壁纸所属的收藏夹列表
    */
-  async favoritesGetCollectionsForWallpaper(wallpaperId: string): Promise<IpcResponse<Collection[]>> {
+  async favoritesGetCollectionsForWallpaper(
+    wallpaperId: string,
+  ): Promise<IpcResponse<Collection[]>> {
     if (!this.isAvailable()) {
       return this.createUnavailableResponse<Collection[]>()
     }

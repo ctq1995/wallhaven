@@ -10,9 +10,6 @@ import type { Collection, FavoriteItem, FavoritesErrorCode } from '@/types'
 import { electronClient } from '@/clients'
 import { FavoritesErrorCodes } from '@/types'
 
-/** 默认收藏夹名称（主进程自动创建默认收藏夹时使用此名称） */
-const DEFAULT_COLLECTION_NAME = '收藏'
-
 /** 创建错误响应 */
 function createError<T>(code: FavoritesErrorCode, message: string): IpcResponse<T> {
   return {
@@ -38,7 +35,10 @@ export const favoritesRepository = {
     return {
       success: false,
       data: [],
-      error: result.error ?? { code: FavoritesErrorCodes.STORAGE_ERROR, message: '读取收藏夹列表失败' },
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '读取收藏夹列表失败',
+      },
     }
   },
 
@@ -69,7 +69,10 @@ export const favoritesRepository = {
     if (result.error?.code === 'COLLECTION_NAME_EXISTS') {
       return createError(FavoritesErrorCodes.COLLECTION_NAME_EXISTS, '收藏夹名称已存在')
     }
-    return createError(FavoritesErrorCodes.STORAGE_ERROR, result.error?.message || '重命名收藏夹失败')
+    return createError(
+      FavoritesErrorCodes.STORAGE_ERROR,
+      result.error?.message || '重命名收藏夹失败',
+    )
   },
 
   /**
@@ -99,7 +102,10 @@ export const favoritesRepository = {
     if (result.error?.code === 'COLLECTION_NOT_FOUND') {
       return createError(FavoritesErrorCodes.COLLECTION_NOT_FOUND, '收藏夹不存在')
     }
-    return createError(FavoritesErrorCodes.STORAGE_ERROR, result.error?.message || '设置默认收藏夹失败')
+    return createError(
+      FavoritesErrorCodes.STORAGE_ERROR,
+      result.error?.message || '设置默认收藏夹失败',
+    )
   },
 
   // ==================== 收藏项操作 ====================
@@ -124,11 +130,13 @@ export const favoritesRepository = {
    * 添加收藏项
    */
   async addFavorite(item: FavoriteItem): Promise<IpcResponse<FavoriteItem>> {
+    console.log('[FavoritesRepository] addFavorite called with item:', item)
     const result = await electronClient.favoritesAdd(
       item.wallpaperId,
       item.collectionId,
       item.wallpaperData,
     )
+    console.log('[FavoritesRepository] electronClient.favoritesAdd result:', result)
     if (result.success) return result
 
     if (result.error?.code === 'COLLECTION_NOT_FOUND') {
@@ -161,11 +169,7 @@ export const favoritesRepository = {
     fromCollectionId: string,
     toCollectionId: string,
   ): Promise<IpcResponse<FavoriteItem>> {
-    const result = await electronClient.favoritesMove(
-      wallpaperId,
-      fromCollectionId,
-      toCollectionId,
-    )
+    const result = await electronClient.favoritesMove(wallpaperId, fromCollectionId, toCollectionId)
     if (result.success) return result
 
     if (result.error?.code === 'COLLECTION_NOT_FOUND') {
@@ -194,7 +198,10 @@ export const favoritesRepository = {
     return {
       success: false,
       data: false,
-      error: result.error ?? { code: FavoritesErrorCodes.STORAGE_ERROR, message: '检查收藏状态失败' },
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '检查收藏状态失败',
+      },
     }
   },
 
@@ -209,7 +216,10 @@ export const favoritesRepository = {
     return {
       success: false,
       data: [],
-      error: result.error ?? { code: FavoritesErrorCodes.STORAGE_ERROR, message: '获取壁纸收藏夹失败' },
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '获取壁纸收藏夹失败',
+      },
     }
   },
 }

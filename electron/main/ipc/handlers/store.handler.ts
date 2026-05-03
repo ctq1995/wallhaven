@@ -50,23 +50,32 @@ export function registerStoreHandlers(): void {
       switch (route.type) {
         case 'key_value': {
           const row = getDatabase()
-            .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+            .prepare('SELECT value FROM settings WHERE key = ?')
             .get(key)
-          value = row ? JSON.parse(row.value) : null
+          if (row) {
+            const v = (row as Record<string, unknown>).value
+            value = typeof v === 'string' ? JSON.parse(v) : null
+          }
           break
         }
         case 'single_row': {
           const row = getDatabase()
-            .prepare<{ value: string }>('SELECT value FROM search_params WHERE id = 1')
+            .prepare('SELECT value FROM search_params WHERE id = 1')
             .get()
-          value = row ? JSON.parse(row.value) : null
+          if (row) {
+            const v = (row as Record<string, unknown>).value
+            value = typeof v === 'string' ? JSON.parse(v) : null
+          }
           break
         }
         case 'relational': {
           const rows = getDatabase()
-            .prepare<{ data: string }>('SELECT data FROM download_history ORDER BY id DESC LIMIT 50')
+            .prepare('SELECT data FROM download_history ORDER BY id DESC LIMIT 50')
             .all()
-          value = rows.map(r => JSON.parse(r.data))
+          value = rows.map(r => {
+            const data = (r as Record<string, unknown>).data
+            return typeof data === 'string' ? JSON.parse(data) : null
+          })
           break
         }
       }

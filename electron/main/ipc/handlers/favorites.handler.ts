@@ -24,7 +24,7 @@ export function registerFavoritesHandlers(): void {
     try {
       const db = getDatabase()
       const rows = db
-        .prepare<any[]>(
+        .prepare(
           `SELECT id, name, is_default, sort_order, created_at, updated_at
            FROM collections
            ORDER BY sort_order ASC, created_at ASC`,
@@ -54,14 +54,17 @@ export function registerFavoritesHandlers(): void {
         }
       }
 
-      const mappedCollections = rows.map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        isDefault: row.is_default === 1,
-        sortOrder: row.sort_order,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }))
+      const mappedCollections = rows.map((row) => {
+        const r = row as Record<string, unknown>
+        return {
+          id: r.id,
+          name: r.name,
+          isDefault: r.is_default === 1,
+          sortOrder: r.sort_order,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }
+      })
       return { success: true, data: mappedCollections }
     } catch (error: any) {
       logHandler('favorites-get-collections', `Error: ${error.message}`, 'error')
@@ -85,7 +88,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check name not already taken
         const existing = db
-          .prepare<{ exists: number }>('SELECT 1 as "exists" FROM collections WHERE name = ? LIMIT 1')
+          .prepare('SELECT 1 as "exists" FROM collections WHERE name = ? LIMIT 1')
           .get(name)
         if (existing) {
           return {
@@ -134,7 +137,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check collection exists
         const collection = db
-          .prepare<{ id: string }>('SELECT id FROM collections WHERE id = ? LIMIT 1')
+          .prepare('SELECT id FROM collections WHERE id = ? LIMIT 1')
           .get(id)
         if (!collection) {
           return {
@@ -145,7 +148,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check new name not taken by another collection
         const nameExists = db
-          .prepare<{ exists: number }>(
+          .prepare(
             'SELECT 1 as "exists" FROM collections WHERE name = ? AND id != ? LIMIT 1',
           )
           .get(name, id)
@@ -165,17 +168,24 @@ export function registerFavoritesHandlers(): void {
 
         // Read back full row after update
         const updated = db
-          .prepare<any>('SELECT * FROM collections WHERE id = ?')
+          .prepare('SELECT * FROM collections WHERE id = ?')
           .get(id)
+        if (!updated) {
+          return {
+            success: false,
+            error: { code: 'COLLECTION_NOT_FOUND', message: '收藏夹不存在' },
+          }
+        }
+        const r = updated as Record<string, unknown>
         return {
           success: true,
           data: {
-            id: updated.id,
-            name: updated.name,
-            isDefault: updated.is_default === 1,
-            sortOrder: updated.sort_order,
-            createdAt: updated.created_at,
-            updatedAt: updated.updated_at,
+            id: r.id,
+            name: r.name,
+            isDefault: r.is_default === 1,
+            sortOrder: r.sort_order,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
           },
         }
       } catch (error: any) {
@@ -201,7 +211,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check collection exists and is not default
         const row = db
-          .prepare<{ is_default: number }>(
+          .prepare(
             'SELECT is_default FROM collections WHERE id = ? LIMIT 1',
           )
           .get(id)
@@ -211,7 +221,8 @@ export function registerFavoritesHandlers(): void {
             error: { code: 'COLLECTION_NOT_FOUND', message: '收藏夹不存在' },
           }
         }
-        if (row.is_default === 1) {
+        const r = row as Record<string, unknown>
+        if (r.is_default === 1) {
           return {
             success: false,
             error: {
@@ -247,7 +258,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check collection exists
         const row = db
-          .prepare<{ id: string }>('SELECT id FROM collections WHERE id = ? LIMIT 1')
+          .prepare('SELECT id FROM collections WHERE id = ? LIMIT 1')
           .get(id)
         if (!row) {
           return {
@@ -268,17 +279,24 @@ export function registerFavoritesHandlers(): void {
 
         // Read back updated collection
         const updated = db
-          .prepare<any>('SELECT * FROM collections WHERE id = ?')
+          .prepare('SELECT * FROM collections WHERE id = ?')
           .get(id)
+        if (!updated) {
+          return {
+            success: false,
+            error: { code: 'COLLECTION_NOT_FOUND', message: '收藏夹不存在' },
+          }
+        }
+        const r = updated as Record<string, unknown>
         return {
           success: true,
           data: {
-            id: updated.id,
-            name: updated.name,
+            id: r.id,
+            name: r.name,
             isDefault: true,
-            sortOrder: updated.sort_order,
-            createdAt: updated.created_at,
-            updatedAt: updated.updated_at,
+            sortOrder: r.sort_order,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
           },
         }
       } catch (error: any) {
@@ -306,25 +324,25 @@ export function registerFavoritesHandlers(): void {
         const db = getDatabase()
         const { collectionId } = params
 
-        let rows: any[]
+        let rows: Record<string, unknown>[]
         if (collectionId) {
           rows = db
-            .prepare<any[]>(
+            .prepare(
               'SELECT collection_id, wallpaper_id, wallpaper_data, added_at FROM favorites WHERE collection_id = ? ORDER BY added_at DESC',
             )
-            .all(collectionId)
+            .all(collectionId) as Record<string, unknown>[]
         } else {
           rows = db
-            .prepare<any[]>(
+            .prepare(
               'SELECT collection_id, wallpaper_id, wallpaper_data, added_at FROM favorites ORDER BY added_at DESC',
             )
-            .all()
+            .all() as Record<string, unknown>[]
         }
 
-        const mappedFavorites = rows.map((row: any) => ({
+        const mappedFavorites = rows.map((row) => ({
           collectionId: row.collection_id,
           wallpaperId: row.wallpaper_id,
-          wallpaperData: JSON.parse(row.wallpaper_data),
+          wallpaperData: JSON.parse(row.wallpaper_data as string),
           addedAt: row.added_at,
         }))
         return { success: true, data: mappedFavorites }
@@ -358,7 +376,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check collection exists
         const collection = db
-          .prepare<{ id: string }>('SELECT 1 as id FROM collections WHERE id = ? LIMIT 1')
+          .prepare('SELECT 1 as id FROM collections WHERE id = ? LIMIT 1')
           .get(collectionId)
         if (!collection) {
           return {
@@ -369,7 +387,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check not already in collection
         const existing = db
-          .prepare<{ exists: number }>(
+          .prepare(
             'SELECT 1 as "exists" FROM favorites WHERE collection_id = ? AND wallpaper_id = ? LIMIT 1',
           )
           .get(collectionId, wallpaperId)
@@ -459,7 +477,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check target collection exists
         const targetCollection = db
-          .prepare<{ id: string }>('SELECT 1 as id FROM collections WHERE id = ? LIMIT 1')
+          .prepare('SELECT 1 as id FROM collections WHERE id = ? LIMIT 1')
           .get(toCollectionId)
         if (!targetCollection) {
           return {
@@ -470,7 +488,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check source favorite exists and get wallpaper_data for return value
         const sourceFavorite = db
-          .prepare<{ wallpaper_data: string }>(
+          .prepare(
             'SELECT wallpaper_data FROM favorites WHERE wallpaper_id = ? AND collection_id = ? LIMIT 1',
           )
           .get(wallpaperId, fromCollectionId)
@@ -483,7 +501,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check not already in target collection
         const alreadyExists = db
-          .prepare<{ exists: number }>(
+          .prepare(
             'SELECT 1 as "exists" FROM favorites WHERE wallpaper_id = ? AND collection_id = ? LIMIT 1',
           )
           .get(wallpaperId, toCollectionId)
@@ -499,12 +517,13 @@ export function registerFavoritesHandlers(): void {
           'UPDATE favorites SET collection_id = ?, added_at = ? WHERE wallpaper_id = ? AND collection_id = ?',
         ).run(toCollectionId, now, wallpaperId, fromCollectionId)
 
+        const sf = sourceFavorite as Record<string, unknown>
         return {
           success: true,
           data: {
             collectionId: toCollectionId,
             wallpaperId,
-            wallpaperData: JSON.parse(sourceFavorite.wallpaper_data),
+            wallpaperData: JSON.parse(sf.wallpaper_data as string),
             addedAt: now,
           },
         }
@@ -530,7 +549,7 @@ export function registerFavoritesHandlers(): void {
         const { wallpaperId } = params
 
         const row = db
-          .prepare<{ exists: number }>(
+          .prepare(
             'SELECT 1 as "exists" FROM favorites WHERE wallpaper_id = ? LIMIT 1',
           )
           .get(wallpaperId)
@@ -557,16 +576,16 @@ export function registerFavoritesHandlers(): void {
         const { wallpaperId } = params
 
         const rows = db
-          .prepare<any[]>(
+          .prepare(
             `SELECT c.id, c.name, c.is_default, c.sort_order, c.created_at, c.updated_at
              FROM collections c
              INNER JOIN favorites f ON f.collection_id = c.id
              WHERE f.wallpaper_id = ?
              ORDER BY c.sort_order ASC, c.created_at ASC`,
           )
-          .all(wallpaperId)
+          .all(wallpaperId) as Record<string, unknown>[]
 
-        const mappedCollections = rows.map((row: any) => ({
+        const mappedCollections = rows.map((row) => ({
           id: row.id,
           name: row.name,
           isDefault: row.is_default === 1,

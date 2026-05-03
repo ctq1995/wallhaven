@@ -199,7 +199,7 @@ export function getDatabase(): DatabaseSync {
     startWalMonitor()
   }
 
-  return db
+  return db!
 }
 
 /**
@@ -264,10 +264,13 @@ export function withTransaction<T>(fn: () => T): T {
 export function getAppSetting(key: string): unknown {
   try {
     const row = getDatabase()
-      .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+      .prepare('SELECT value FROM settings WHERE key = ?')
       .get(key)
     if (!row) return null
-    return JSON.parse(row.value)
+    // row.value is SQLOutputValue, need to cast to string for JSON.parse
+    const value = (row as Record<string, unknown>).value
+    if (typeof value !== 'string') return null
+    return JSON.parse(value)
   } catch (error) {
     console.error(`[getAppSetting] Failed to read setting "${key}":`, error)
     return null
