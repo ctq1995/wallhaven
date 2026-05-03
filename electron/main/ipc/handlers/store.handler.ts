@@ -172,9 +172,11 @@ export function registerStoreHandlers(): void {
    */
   ipcMain.handle('store-clear', () => {
     try {
-      getDatabase().exec('DELETE FROM settings')
-      getDatabase().exec('DELETE FROM search_params')
-      getDatabase().exec('DELETE FROM download_history')
+      withTransaction(() => {
+        getDatabase().exec('DELETE FROM settings')
+        getDatabase().exec('DELETE FROM search_params')
+        getDatabase().exec('DELETE FROM download_history')
+      })
       // D-06: collections and favorites NOT cleared
       // D-07: _migrated_from_store flag is managed by migration script (Phase 44), not DB
       return { success: true }
