@@ -156,10 +156,10 @@ Plans:
   2. Migration creates a backup copy of electron-store file before any SQLite writes
   3. Migration is idempotent — guarded by _migrated_from_store flag, safe to re-run if interrupted
   4. Existing settings, search params, download history, and favorites survive migration without data loss
-**Plans**: 2 plans
+**Plans**: 2 plans (2 waves)
 Plans:
-- [ ] 44-01-PLAN.md — Create electron/main/migration.ts with runMigration(), all 4 domain migrations, backup, idempotency guard
-- [ ] 44-02-PLAN.md — Integrate runMigration() into getDatabase() + fix store-clear to preserve _migrated_from_store
+- [ ] 44-01-PLAN.md — **Wave 1** Create electron/main/migration.ts with runMigration(), all 4 domain migrations, backup, idempotency guard
+- [ ] 44-02-PLAN.md — **Wave 2 *(blocked on Wave 1)*:** Integrate runMigration() into getDatabase() + fix store-clear to preserve _migrated_from_store
 
 ### Phase 45: Cleanup & Final Verification
 **Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
