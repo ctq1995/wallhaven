@@ -3,15 +3,11 @@ import { join, dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { store } from './store'
 import { closeDatabase } from './database'
 
 // 获取当前文件的目录路径
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-
-// 将 store 实例导出供其他模块使用
-export { store }
 
 // Splash 窗口实例
 let splashWindow: BrowserWindow | null = null

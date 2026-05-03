@@ -9,11 +9,10 @@
  * Fresh installs are marked as migrated with zero data.
  */
 
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import { store } from './store'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,10 +89,12 @@ export function runMigration(db: DatabaseSync): MigrationResult {
       // ---------------------------------------------------------------
       // Step A: Read all 4 domains from electron-store (H-04)
       // ---------------------------------------------------------------
-      const appSettings: unknown = store.get('appSettings')
-      const queryParams: unknown = store.get('wallpaperQueryParams')
-      const downloadHistoryList: unknown = store.get('downloadFinishedList')
-      const favoritesData: unknown = store.get('favoritesData')
+      // Read the JSON file directly (store.ts has been removed)
+      const storeData = JSON.parse(readFileSync(storePath, 'utf-8'))
+      const appSettings: unknown = storeData.appSettings
+      const queryParams: unknown = storeData.wallpaperQueryParams
+      const downloadHistoryList: unknown = storeData.downloadFinishedList
+      const favoritesData: unknown = storeData.favoritesData
 
       // ---------------------------------------------------------------
       // Step B: Collections INSERT (E-04, E-06 — FK dependency first)
