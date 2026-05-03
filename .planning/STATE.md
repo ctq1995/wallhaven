@@ -6,17 +6,17 @@ status: executing
 last_updated: "2026-05-03T22:00:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   planned_phases: 1
   total_plans: 4
-  completed_plans: 2
-  percent: 20
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — Phase 41 complete, Phase 42 planned
+> Current: Milestone v5.0 — Phase 42 complete, Phase 43 planned
 > Status: Executing
 
 ---
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 42 — Main Process + Store Handler Cutover
-Plan: 2 plans (42-01, 42-02)
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 42 plans created (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
+Phase: 43 — Favorites & Collections Migration
+Plan: 0 plans
+Status: Ready to plan
+Last activity: 2026-05-03 — Phase 42 complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
 
 ---
 
@@ -43,10 +43,10 @@ Last activity: 2026-05-03 — Phase 42 plans created (42-01: database helpers + 
 | Metric | Value |
 |--------|-------|
 | Total phases (v5.0) | 5 |
-| Completed phases | 1 |
-| Total plans | 2 |
-| Completed plans | 2 |
-| Overall progress | 20% |
+| Completed phases | 2 |
+| Total plans | 4 |
+| Completed plans | 4 |
+| Overall progress | 40% |
 
 ---
 
@@ -91,4 +91,4 @@ Last activity: 2026-05-03 — Phase 42 plans created (42-01: database helpers + 
 
 ---
 
-*Updated: 2026-05-03 — Phase 41 Complete (41-02: Database module with singleton, schema, withTransaction, WAL checkpoint)*
+*Updated: 2026-05-03 — Phase 42 Complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)*
