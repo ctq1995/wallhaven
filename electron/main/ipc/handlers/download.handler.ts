@@ -927,6 +927,7 @@ export function registerDownloadHandlers(): void {
           progress: 0,
           offset: 0,
           speed: 0,
+          totalSize: download.totalSize,
         })
       }
 
