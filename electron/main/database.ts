@@ -251,7 +251,8 @@ export function getAppSetting(key: string): unknown {
       .get(key)
     if (!row) return null
     return JSON.parse(row.value)
-  } catch {
+  } catch (error) {
+    console.error(`[getAppSetting] Failed to read setting "${key}":`, error)
     return null
   }
 }
