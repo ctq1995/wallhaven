@@ -228,7 +228,7 @@ export function withTransaction<T>(fn: () => T): T {
     database.exec('COMMIT')
     return result
   } catch (error) {
-    database.exec('ROLLBACK')
+    try { database.exec('ROLLBACK') } catch { /* suppress rollback error */ }
     throw error
   }
 }
