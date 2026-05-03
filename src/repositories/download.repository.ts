@@ -9,6 +9,22 @@ import { electronClient, STORAGE_KEYS } from '@/clients'
 
 
 /**
+ * Promise-based mutex to serialize concurrent add() / remove() calls.
+ * Each caller chains behind the previous one, preventing the
+ * read-modify-write race: concurrent get+set interleaving would
+ * silently lose data (CR-02).
+ */
+let serialMutex: Promise<void> = Promise.resolve()
+
+function withSerialAccess<T>(fn: () => Promise<T>): Promise<T> {
+  let release: () => void
+  const next = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return serialMutex.then(() => fn()).finally(() => release!())
+}
+
+/**
  * 下载仓储
  */
 export const downloadRepository = {
@@ -43,13 +59,15 @@ export const downloadRepository = {
    * @param item - 下载记录项
    */
   async add(item: FinishedDownloadItem): Promise<IpcResponse<void>> {
-    const result = await this.get()
-    if (!result.success) {
-      return { success: false, error: result.error }
-    }
+    return withSerialAccess(async () => {
+      const result = await this.get()
+      if (!result.success) {
+        return { success: false, error: result.error }
+      }
 
-    const items = [item, ...(result.data ?? [])]
-    return this.set(items)
+      const items = [item, ...(result.data ?? [])]
+      return this.set(items)
+    })
   },
 
   /**
@@ -57,14 +75,16 @@ export const downloadRepository = {
    * @param id - 下载记录 ID
    */
   async remove(id: string): Promise<IpcResponse<void>> {
-    const result = await this.get()
-    if (!result.success) {
-      return { success: false, error: result.error }
-    }
+    return withSerialAccess(async () => {
+      const result = await this.get()
+      if (!result.success) {
+        return { success: false, error: result.error }
+      }
 
-    // result.data 已在 get() 中保证为数组
-    const items = (result.data ?? []).filter((item) => item.id !== id)
-    return this.set(items)
+      // result.data 已在 get() 中保证为数组
+      const items = (result.data ?? []).filter((item) => item.id !== id)
+      return this.set(items)
+    })
   },
 
   /**
