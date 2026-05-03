@@ -97,7 +97,7 @@ Plans:
 
 - [x] **Phase 41: Database Infrastructure** (2/2 plans) — Core database connection, schema, and utilities
 - [x] **Phase 42: Main Process + Store Handler Cutover** (2/2 plans) — All generic store access backed by SQLite
-- [ ] **Phase 43: Favorites & Collections Migration** (0 plans) — Targeted SQL operations for favorites
+- [ ] **Phase 43: Favorites & Collections Migration** (2 plans) — Targeted SQL operations for favorites
 - [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
 - [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
 
@@ -145,8 +145,8 @@ Plans:
   4. Multiple collections per wallpaper still supported after migration
 **Plans**: 2 plans
 Plans:
-- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
-- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
+- [ ] 43-01-PLAN.md — Create dedicated favorites IPC handler module with 11 channels, preload bridges, and type declarations
+- [ ] 43-02-PLAN.md — Rewrite favorites.repository.ts to use dedicated IPC channels, add electronClient favorites methods, remove favoritesData from keyToTable()
 
 ### Phase 44: Migration Script
 **Goal**: One-time migration from electron-store to SQLite; idempotent and data-safe
@@ -159,8 +159,8 @@ Plans:
   4. Existing settings, search params, download history, and favorites survive migration without data loss
 **Plans**: 2 plans
 Plans:
-- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
-- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
+- [ ] 44-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 44-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ### Phase 45: Cleanup & Final Verification
 **Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
@@ -178,8 +178,8 @@ Plans:
   9. App launches and initializes database within 500ms overhead (VER-03)
 **Plans**: 2 plans
 Plans:
-- [ ] 42-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
-- [ ] 42-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
+- [ ] 45-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
+- [ ] 45-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
 
 ---
 
@@ -197,7 +197,7 @@ Plans:
 | 40. 在线壁纸页面小红心多收藏夹状态区分 | v4.5 | 3/3 | Complete | 2026-05-02 |
 | 41. Database Infrastructure | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 42. Main Process + Store Handler Cutover | v5.0 | 2/2 | Complete | 2026-05-03 |
-| 43. Favorites & Collections Migration | v5.0 | 0/0 | Not started | - |
+| 43. Favorites & Collections Migration | v5.0 | 0/2 | Planning | - |
 | 44. Migration Script | v5.0 | 0/0 | Not started | - |
 | 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |
 
@@ -261,3 +261,6 @@ Plans:
 **Coverage:**
 - v5.0 requirements: 29 total
 - Mapped to phases: 29/29 ✓
+
+---
+*Requirements defined: 2026-05-03*
