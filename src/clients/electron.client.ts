@@ -13,6 +13,8 @@ import type {
 } from '@/shared/types/ipc'
 import { ErrorCodes } from '@/errors'
 
+import type { Collection, FavoriteItem, WallpaperItem } from '@/types'
+
 /**
  * ElectronClient 实现类
  */
@@ -154,6 +156,285 @@ class ElectronClientImpl {
       return {
         success: false,
         error: { code: ErrorCodes.STORE_ERROR, message: String(error) },
+      }
+    }
+  }
+
+  // ==================== Favorites & Collections ====================
+
+  /**
+   * 获取所有收藏夹
+   */
+  async favoritesGetCollections(): Promise<IpcResponse<Collection[]>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Collection[]>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetCollections()
+      if (result.success) {
+        return { success: true, data: result.data as Collection[] }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '收藏夹不存在' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 创建收藏夹
+   */
+  async favoritesCreateCollection(name: string): Promise<IpcResponse<Collection>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Collection>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesCreateCollection({ name })
+      if (result.success) {
+        return { success: true, data: result.data as Collection }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '创建收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 重命名收藏夹
+   */
+  async favoritesRenameCollection(id: string, name: string): Promise<IpcResponse<Collection>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Collection>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesRenameCollection({ id, name })
+      if (result.success) {
+        return { success: true, data: result.data as Collection }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '重命名收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 删除收藏夹
+   */
+  async favoritesDeleteCollection(id: string): Promise<IpcResponse<void>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<void>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesDeleteCollection({ id })
+      if (result.success) {
+        return { success: true }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '删除收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 设置默认收藏夹
+   */
+  async favoritesSetDefaultCollection(id: string): Promise<IpcResponse<Collection>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Collection>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesSetDefaultCollection({ id })
+      if (result.success) {
+        return { success: true, data: result.data as Collection }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '设置默认收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 获取收藏夹中的收藏项
+   */
+  async favoritesGetByCollection(collectionId?: string): Promise<IpcResponse<FavoriteItem[]>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<FavoriteItem[]>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetByCollection({ collectionId })
+      if (result.success) {
+        return { success: true, data: result.data as FavoriteItem[] }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '获取收藏项失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 添加收藏项
+   */
+  async favoritesAdd(wallpaperId: string, collectionId: string, wallpaperData: WallpaperItem): Promise<IpcResponse<FavoriteItem>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<FavoriteItem>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesAdd({ wallpaperId, collectionId, wallpaperData })
+      if (result.success) {
+        return { success: true, data: result.data as FavoriteItem }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '添加收藏失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 移除收藏项
+   */
+  async favoritesRemove(wallpaperId: string, collectionId: string): Promise<IpcResponse<void>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<void>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesRemove({ wallpaperId, collectionId })
+      if (result.success) {
+        return { success: true }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '移除收藏失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 移动收藏项到其他收藏夹
+   */
+  async favoritesMove(wallpaperId: string, fromCollectionId: string, toCollectionId: string): Promise<IpcResponse<FavoriteItem>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<FavoriteItem>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesMove({ wallpaperId, fromCollectionId, toCollectionId })
+      if (result.success) {
+        return { success: true, data: result.data as FavoriteItem }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '移动收藏失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 检查壁纸是否已收藏
+   */
+  async favoritesIsFavorite(wallpaperId: string): Promise<IpcResponse<boolean>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<boolean>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesIsFavorite({ wallpaperId })
+      if (result.success) {
+        return { success: true, data: result.data as boolean }
+      }
+      return {
+        success: false,
+        data: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '检查收藏状态失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        data: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 获取壁纸所属的收藏夹列表
+   */
+  async favoritesGetCollectionsForWallpaper(wallpaperId: string): Promise<IpcResponse<Collection[]>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Collection[]>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetCollectionsForWallpaper({ wallpaperId })
+      if (result.success) {
+        return { success: true, data: result.data as Collection[] }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '获取壁纸收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
       }
     }
   }
