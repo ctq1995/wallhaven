@@ -85,7 +85,7 @@ export function registerFavoritesHandlers(): void {
 
         // Check name not already taken
         const existing = db
-          .prepare<{ exists: number }>('SELECT 1 as exists FROM collections WHERE name = ? LIMIT 1')
+          .prepare<{ exists: number }>('SELECT 1 as "exists" FROM collections WHERE name = ? LIMIT 1')
           .get(name)
         if (existing) {
           return {
@@ -146,7 +146,7 @@ export function registerFavoritesHandlers(): void {
         // Check new name not taken by another collection
         const nameExists = db
           .prepare<{ exists: number }>(
-            'SELECT 1 as exists FROM collections WHERE name = ? AND id != ? LIMIT 1',
+            'SELECT 1 as "exists" FROM collections WHERE name = ? AND id != ? LIMIT 1',
           )
           .get(name, id)
         if (nameExists) {
@@ -370,7 +370,7 @@ export function registerFavoritesHandlers(): void {
         // Check not already in collection
         const existing = db
           .prepare<{ exists: number }>(
-            'SELECT 1 as exists FROM favorites WHERE collection_id = ? AND wallpaper_id = ? LIMIT 1',
+            'SELECT 1 as "exists" FROM favorites WHERE collection_id = ? AND wallpaper_id = ? LIMIT 1',
           )
           .get(collectionId, wallpaperId)
         if (existing) {
@@ -484,7 +484,7 @@ export function registerFavoritesHandlers(): void {
         // Check not already in target collection
         const alreadyExists = db
           .prepare<{ exists: number }>(
-            'SELECT 1 as exists FROM favorites WHERE wallpaper_id = ? AND collection_id = ? LIMIT 1',
+            'SELECT 1 as "exists" FROM favorites WHERE wallpaper_id = ? AND collection_id = ? LIMIT 1',
           )
           .get(wallpaperId, toCollectionId)
         if (alreadyExists) {
@@ -531,7 +531,7 @@ export function registerFavoritesHandlers(): void {
 
         const row = db
           .prepare<{ exists: number }>(
-            'SELECT 1 as exists FROM favorites WHERE wallpaper_id = ? LIMIT 1',
+            'SELECT 1 as "exists" FROM favorites WHERE wallpaper_id = ? LIMIT 1',
           )
           .get(wallpaperId)
         return { success: true, data: !!row }

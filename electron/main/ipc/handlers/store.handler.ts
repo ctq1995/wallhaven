@@ -172,7 +172,7 @@ export function registerStoreHandlers(): void {
   ipcMain.handle('store-clear', () => {
     try {
       withTransaction(() => {
-        getDatabase().exec('DELETE FROM settings')
+        getDatabase().exec("DELETE FROM settings WHERE key != '_migrated_from_store'")
         getDatabase().exec('DELETE FROM search_params')
         getDatabase().exec('DELETE FROM download_history')
       })

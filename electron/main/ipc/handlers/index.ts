@@ -8,7 +8,6 @@
 // Import registration functions from each handler module
 import { registerFileHandlers } from './file.handler'
 import { registerDownloadHandlers } from './download.handler'
-import { registerSettingsHandlers } from './settings.handler'
 import { registerWallpaperHandlers } from './wallpaper.handler'
 import { registerWindowHandlers } from './window.handler'
 import { registerCacheHandlers } from './cache.handler'
@@ -35,9 +34,6 @@ export const REGISTERED_CHANNELS = [
   'get-pending-downloads',
   // Wallpaper setting
   'set-wallpaper',
-  // Settings storage
-  'save-settings',
-  'load-settings',
   // API proxy
   'wallhaven-api-request',
   // Window control
@@ -74,7 +70,6 @@ export const REGISTERED_CHANNELS = [
 export function registerAllHandlers(): void {
   registerFileHandlers()
   registerDownloadHandlers()
-  registerSettingsHandlers()
   registerWallpaperHandlers()
   registerWindowHandlers()
   registerCacheHandlers()

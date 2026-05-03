@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
+import { runMigration } from './migration'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -178,6 +179,22 @@ export function getDatabase(): DatabaseSync {
     })
 
     initializeSchema()
+
+    // One-time migration from electron-store to SQLite
+    // Must run after schema creation, before any handler accesses the database (D-04, D-05, D-06)
+    try {
+      const result = runMigration(db)
+      if (result.migrated) {
+        console.log(`[Migration] Migration executed. Backup at: ${result.backupPath}`)
+      }
+    } catch (error) {
+      // Migration failure is non-fatal — log and continue with empty DB.
+      // Reset db so next getDatabase() retries initialization and migration.
+      console.error('[Migration] Migration failed during startup, will retry on next launch:', error)
+      db.close()
+      db = undefined
+    }
+
     startPeriodicCheckpoint()
     startWalMonitor()
   }
