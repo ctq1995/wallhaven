@@ -923,7 +923,7 @@ export function registerDownloadHandlers(): void {
       if (windows.length > 0) {
         windows[0].webContents.send('download-progress', {
           taskId,
-          state: 'waiting',
+          state: 'cancelled',
           progress: 0,
           offset: 0,
           speed: 0,
