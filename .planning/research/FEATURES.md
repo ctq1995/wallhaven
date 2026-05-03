@@ -1,250 +1,205 @@
-# Feature Research: Multi-threaded Download with Retry Backoff
+# Feature Research: electron-store to SQLite Migration
 
-**Domain:** Desktop wallpaper download manager (Electron)
-**Researched:** 2026-05-01
-**Confidence:** HIGH
+**Domain:** Electron desktop wallpaper browser — migrating persistent storage from JSON-file (electron-store) to SQLite for data integrity, partial updates, and query capability
+**Researched:** 2026-05-03
+**Confidence:** HIGH (based on codebase analysis + established SQLite migration patterns)
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist for a download manager with concurrent download settings. Missing these = product feels broken or deceptive.
+Features users assume exist. Missing these = migration feels incomplete or causes data loss.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **Concurrency limit enforcement** | Slider exists on settings page labeled "Max concurrent downloads" with range 1-10. Currently does nothing — all tasks start immediately regardless of setting. Users who set this to 1 expect serial execution. | LOW | Core gap in current implementation. The `maxConcurrentDownloads` value is saved in settings but never read by the download pipeline. |
-| **Auto-start queued tasks** | When a slot frees up (download completes, fails, or is cancelled), the next waiting task should start automatically. Users should not need to manually click "start" on queued items. | MEDIUM | Requires queue processing loop in main process. Current `activeDownloads` Map exists but has no queue. |
-| **Visual queue status** | Tasks that are waiting for a slot need a clear "waiting" indicator showing their position in queue. Users need to understand why a task isn't downloading yet. | LOW | Already partially implemented: `DownloadItem.state` has `'waiting'` value. But no tasks ever stay in this state — they transition immediately to `'downloading'`. |
-| **Manual retry on failure** | When a download fails, users expect a retry button. Showing a Chinese error alert then doing nothing is insufficient. | LOW | Current behavior: shows `showError('下载失败: ${error}')` and leaves the task in `'failed'` state. No user action available beyond manual remove-and-re-add. |
-| **Status clarity** | At any moment users should see: which tasks are downloading, which are waiting, which failed, and which completed. Color-coding (blue=active, green=done, orange=paused, red=failed) is standard. | LOW | Current UI already shows status text but the `waiting` state never actually occurs. Paused/completed states work correctly. |
+| Data migration with zero loss | Existing app data (settings, search params, download history, favorites) must survive the migration intact. Users expect their configuration and collections to be preserved across the update. | MEDIUM | Transactional migration script handles all 4 domains in a single atomic operation. Idempotent — safe to re-run if interrupted. |
+| App startup without regression | App launches normally, reads from SQLite instead of electron-store. No visible difference to the user. All existing functionality works. | LOW | Repository layer swaps backend. IPC handlers route through SQLite. The View/Composable/Service layers are unchanged. |
+| Download queue still reads settings | The download queue in the main process reads `maxConcurrentDownloads` from storage on every `processQueue()` call. This must continue to work synchronously. | LOW | `node:sqlite` provides synchronous `getDatabase().prepare().get()` — direct replacement for `store.get('appSettings')`. |
+| Favorites CRUD operations work | Create, rename, delete collections. Add, remove, move favorites. Check if a wallpaper is favorited. All continue to work through the repository layer. | MEDIUM | The favorites repository does full read-modify-write on a JSON blob today. SQLite replaces this with targeted INSERT/UPDATE/DELETE queries. The repository interface stays the same. |
+| Download history add/remove/clear | Adding completed downloads, removing individual entries, clearing all history. | LOW | Max-50 constraint enforced by SQL query (`ORDER BY time DESC LIMIT 50`). Repository interface unchanged. |
+| Settings read/write | Reading and saving all 4 settings fields (downloadPath, maxConcurrentDownloads, apiKey, wallpaperFit). | LOW | Settings stored as individual key-value rows for atomic access. Repository returns the full `AppSettings` object from a single query. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set a wallpaper download manager apart. Not required for basic function, but valuable for reliability and user trust.
+Features enabled by SQLite that were impractical with electron-store's JSON-blob pattern.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Automatic retry with exponential backoff** | Downloads fail for transient reasons (network blips, server timeout, rate limiting). Auto-retry with backoff handles these invisibly — user comes back to completed downloads rather than red failures. | MEDIUM | The key new feature for this milestone. Must: classify errors, implement backoff timing with jitter, cap retries, and keep UI informed of retry progress. |
-| **Retry attempt visibility** | Show "Retrying (2/3)..." as part of the status text so users understand the system is handling the failure rather than stuck. Builds trust. | LOW | Simple status label extension. Only appears during retry state. |
-| **Persistent retry state across app restart** | If a download was retrying when the app closed, resume the retry timer on next launch rather than starting from zero. Prevents infinite restart-retry cycles. | MEDIUM | Requires persisting retry count and next-retry timestamp in the state file. Already have `.download.json` state file infrastructure. |
-| **Queue reordering** | Drag-to-reorder waiting tasks so users can prioritize important wallpapers. | HIGH | Adds significant UX complexity. Defer to future milestone. |
-| **Per-task retry configuration** | Allow users to set max retries per download (e.g., right-click "Retry up to 5 times"). Power-user feature. | MEDIUM | Settings-level default + per-task override. Defer until basic retry is stable. |
+| Partial settings read in main process | The download queue reads only `maxConcurrentDownloads` from storage. With electron-store this reads the entire `appSettings` blob and extracts one field. With SQLite, it reads one row: `SELECT value FROM settings WHERE key = 'maxConcurrentDownloads'`. | LOW | Already implemented as a prepared statement. Reduces data transfer and JSON parsing for the hot path (every `processQueue()` call). |
+| O(1) favorites lookup | "Is this wallpaper favorited?" currently reads the entire `FavoritesData` blob (potentially hundreds of items), then does an array `.some()`. With SQLite: `SELECT 1 FROM favorites WHERE wallpaper_id = ? LIMIT 1` — index-only lookup. | LOW | Index on `favorites(wallpaper_id)`. Direct replacement for O(N) array scan. |
+| Targeted collection queries | "Get all collections for wallpaper X" currently reads the full blob and filters in JavaScript. SQLite: `SELECT c.* FROM collections c JOIN favorites f ON c.id = f.collection_id WHERE f.wallpaper_id = ?`. | LOW | JOIN query offloads filtering to the database engine. No data transfer overhead for irrelevant rows. |
+| Atomic delete with cascade | Delete a collection and all its favorites in one operation. Currently: read blob, filter array, write blob. With SQLite: `DELETE FROM collections WHERE id = ?` (CASCADE deletes favorites). No read-modify-write race. | LOW | Foreign key constraint with `ON DELETE CASCADE`. Eliminates the race condition where two operations could overwrite each other's changes. |
+| Transactional multi-write operations | Operations that modify multiple rows (e.g., moving a favorite between collections) are wrapped in a SQLite transaction. If the app crashes mid-operation, the database is left in its previous consistent state. | MEDIUM | SQLite's WAL journaling and `BEGIN IMMEDIATE/COMMIT` transactions ensure crash safety. This is the primary motivation for the migration. |
+| Future: full-text search | SQLite's FTS5 extension enables full-text search across collection names, wallpaper tags, or download history filenames. | LOW | Not needed now but trivial to add later. Requires no additional dependencies. |
+| Future: data export/import | SQLite's `VACUUM INTO 'backup.db'` enables one-command full backup. JSON export for user-facing export feature. | LOW | Atomic, consistent backup. No risk of backing up a partially-written state. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem useful but create real problems in practice.
+Features that seem good but create problems for this migration.
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| **Unlimited retry** | "Never give up on my downloads" | Creates infinite loops if a URL is permanently broken. Wastes bandwidth, fills logs, and frustrates users. | Hard cap (default 3, max 5) with clear "Max retries exceeded" state. |
-| **Retry without jitter** | Simpler implementation | In a concurrent download system, multiple retries firing simultaneously create thundering herd on the server. All retries sync up and fail together. | Always add random jitter to backoff (`delay + random(0, 1000)ms`). |
-| **Show retry as separate download entries** | "I want to see every attempt" | Clutters the UI, duplicates entries, confuses users about what's a real download vs a retry. Retry is a property of the *existing* download, not a new download. | Update status in-place: "Failed — retrying in 4s (2/3)". |
-| **Retry 4xx errors (404, 403, 401)** | "Try harder" | These errors are permanent — the server explicitly refuses the request. Retrying is wasted bandwidth and creates bad server citizenship. | Classify errors: network errors + 5xx = retry; 4xx = immediate fail with clear message. |
-| **Configurable per-server connection limits** | Power users want fine-grained control | Over-engineered for a wallpaper browser. Users are downloading from one source (Wallhaven). | Global concurrency limit is sufficient. Add per-server limits only if user reports show necessity. |
-| **Segmented single-file download (HTTP Range splitting)** | Faster large file downloads | Over-engineered for wallpapers (typically 1-20 MB files). Range splitting adds complexity (chunk management, reassembly, server compatibility checks) for minimal gain at this file size scale. | Single-stream download with pause/resume is sufficient. Range splitting can be considered if downloading 4K/8K wallpapers becomes common. |
+| Anti-Feature | Why Requested | Why Problematic | Alternative |
+|--------------|---------------|-----------------|-------------|
+| ORM layer (Drizzle, Prisma, TypeORM) | ORMs provide type-safe queries and migration tooling. Drizzle is popular in the 2025-2026 Electron ecosystem. | Adds 2-5MB to bundle, introduces build-time schema generation, complicates the simple 4-table schema. The existing repository layer already provides type-safe data access. An ORM adds abstraction without value for this scale. | Raw `node:sqlite` with typed repository methods. Each table gets an `interface` and the repository calls `getDatabase().prepare()` with those types. |
+| Async SQLite driver (`sqlite3`) | Some developers prefer async APIs for consistency with the existing IPC-based pattern. | The main process needs synchronous access (download queue reading settings). `node:sqlite` is sync-first. Mixing sync and async in one process is confusing. | `node:sqlite` (synchronous, built-in). Repository calls are already awaited, so sync calls complete in the microtask queue without blocking the renderer. |
+| Dual-write to electron-store + SQLite | "Keep writing to both during transition for safety." | Doubles write time, doubles code complexity, introduces sync bugs. Migration is a one-time idempotent script, not a permanent dual-write. | Run migration once on startup. After success, SQLite is the single source of truth. Keep electron-store file as cold backup (not read, not written). |
+| Schema-per-domain databases | Separate `.db` files for settings, favorites, and downloads to reduce coupling. | Multiple database connections increase memory and complexity. All 4 domains fit comfortably in one file (< 1MB expected). One file simplifies backup, migration, and connection management. | Single `wallhaven-data.db` file. WAL mode ensures concurrent reads don't block writes. |
+| Normalize wallpaper_data into columns | Full normalization of the `wallpaperData` JSON blob (12+ fields) into individual columns. | Wallpaper data comes from an external API. Its schema is controlled by Wallhaven, not us. Normalizing adds maintenance burden when the API changes. The snapshot pattern is correct for offline favorites viewing. | Store `wallpaper_data` as a JSON text column. The repository deserializes it into `WallpaperItem` on read. |
 
 ## Feature Dependencies
 
 ```
-Concurrent Download Enforcement
-    └──requires──> Queue Manager (main process)
-                       └──requires──> Active download slot tracking
-                       └──requires──> Slot-free event → dequeue next task
+Migration Script
+    ├──requires──> Database Connection (node:sqlite init + WAL mode)
+    ├──requires──> Schema Definition (CREATE TABLE IF NOT EXISTS for all tables)
+    ├──requires──> electron-store Data Access (read old data during migration)
+    └──requires──> Migration Tracking (_migrated_from_store key in settings table)
 
-Auto-start Queued Tasks
-    └──requires──> Concurrent Download Enforcement
-                       └──requires──> Queue Manager
+Settings Domain
+    ├──requires──> settings table with key-value rows
+    └──requires──> Repository updated to query settings table instead of IPC store
 
-Automatic Retry with Exponential Backoff
-    └──requires──> Error classification (retryable vs permanent)
-    └──requires──> Timer/scheduler for delayed retry
-    └──requires──> Retry count tracking per download
-    └──enhances──> Concurrent Download Enforcement (retries consume a slot)
+Search Params Domain
+    └──requires──> search_params table (single JSON row)
 
-Retry Attempt Visibility
-    └──requires──> Automatic Retry with Exponential Backoff
-    └──requires──> Extended DownloadProgressData with retry fields
+Download History Domain
+    ├──requires──> download_history table with indexed columns
+    └──requires──> Max-50 enforcement via SQL ORDER BY + LIMIT
 
-Manual Retry Button
-    └──requires──> "failed" state handling in useDownload
-    └──independent of──> Automatic Retry (both can coexist)
+Favorites Domain
+    ├──requires──> collections table
+    ├──requires──> favorites table with FK to collections
+    └──requires──> Indexes on (wallpaper_id) and (collection_id)
 
-Persistent Retry State
-    └──requires──> Extended PendingDownload schema with retry fields
-    └──enhances──> Automatic Retry with Exponential Backoff
+Main Process Settings Direct Read
+    ├──requires──> Database module export for main process handlers
+    └──requires──> Prepared statement for synchronous settings key lookup
 
-Queue Reordering
-    └──requires──> Queue Manager
-    └──conflicts──> "Auto-start queued tasks" (reordering is meaningless if tasks start immediately; only applies to waiting tasks)
+Cleanup
+    └──requires──> All 4 domains migrated and verified → Remove electron-store dependency
 ```
 
 ### Dependency Notes
 
-- **Concurrent Download Enforcement is the foundation.** Nothing else works without it because the current code starts every task immediately. Building retry on top of the current architecture would mean retries bypass the concurrency limit entirely.
-- **Error classification must precede retry logic.** Without classifying errors, the retry mechanism would waste attempts on permanent failures (404). The classification is simple (2-state: retryable vs permanent) but must be done deliberately.
-- **Retries should consume a download slot.** Otherwise, a retrying task runs "invisibly" alongside the N active slots, effectively allowing N+retrying tasks. This undermines the concurrency limit and can cause excessive parallel connections.
-- **Automatic and manual retry can coexist.** Manual retry is the fallback when automatic retry is exhausted. The retry button should reset the retry counter to 0 and re-enter the queue.
-- **IPC channel compatibility is critical.** The existing `download-progress` IPC channel sends states `'downloading' | 'paused' | 'waiting' | 'completed' | 'failed'`. Adding retry requires either: (a) a new state `'retrying'`, or (b) sending retry info alongside the `'failed'` state. Option (a) is cleaner and maintains backward compatibility for existing listeners.
+- **Migration requires all tables exist before data transfer** — Tables must be created in the correct order (collections before favorites due to FK constraint). The migration script creates tables first, then transfers data within a transaction.
+- **Main process settings read depends on DB module** — The `download-queue.ts` and `download.handler.ts` currently import `store` from `../../store`. They must import `getDatabase` from the database module instead. The DB module must provide a synchronous API.
+- **Favorites FK dependency** — The `favorites` table's `collection_id` column references `collections(id)`. Collection inserts must happen before favorite inserts during migration.
+- **electron-store removal depends on all domains migrated** — The `electron-store` package cannot be removed until all 4 repository classes have been updated and the migration has been verified on existing user data.
 
 ## MVP Definition
 
-### Launch With (v4.0)
+### Launch With (v1 — Initial Migration)
 
-Minimum viable features for "concurrent download + retry backoff" to feel complete and working.
+Minimum viable migration — all 4 data domains work with SQLite, no data loss.
 
-- [ ] **Concurrent download enforcement** — Queue manager in main process reads `maxConcurrentDownloads` from settings. `startDownloadTask` handler enqueues tasks when at capacity. Completed/failed tasks trigger dequeue.
-- [ ] **Auto-start queued tasks** — When a download slot frees up (complete/fail/cancel), the next waiting task starts automatically with no user intervention.
-- [ ] **Waiting state actually used** — Tasks added while at concurrency limit stay in `'waiting'` state. UI shows waiting indicator with queue position.
-- [ ] **Automatic retry with exponential backoff** — Transient failures (network timeout, 5xx, connection reset) trigger retry. Base delay 1s, factor 2x, max 30s, full jitter. Max 3 attempts. Retries consume a download slot.
-- [ ] **Error classification** — Separate retryable errors (timeout, ECONNRESET, 5xx, 429) from permanent errors (404, 403, 401, invalid URL). Only retry retryable errors.
-- [ ] **Retry status in UI** — Show "Retrying (1/3)" or "Failed — retrying in 4s" on the download item during retry state.
-- [ ] **Manual retry button** — After max retries exhausted, show a retry button on the failed item that resets the retry counter and re-enters the queue.
+- [ ] **Database initialization** — `DatabaseSync` connection established on app startup (no npm dependency — `node:sqlite` is built-in), WAL mode enabled (default in SQLite 3.51+), `enableForeignKeyConstraints: true`
+- [ ] **Schema creation** — All tables (`settings`, `search_params`, `download_history`, `collections`, `favorites`) created via `CREATE TABLE IF NOT EXISTS`
+- [ ] **Migration script** — Idempotent one-time migration from electron-store JSON to SQLite. Reads all 4 keys, transforms data, inserts into SQLite within a transaction. Records migration in `_migrated_from_store` settings key.
+- [ ] **Settings repository update** — `settingsRepository.get/set/delete()` reads from SQLite instead of IPC `storeGet/Set`. Backward-compatible return types.
+- [ ] **Download repository update** — `downloadRepository.get/set/add/remove/clear()` reads from SQLite. `SELECT ... ORDER BY time DESC LIMIT 50` handles max-size enforcement.
+- [ ] **Wallpaper repository update** — `wallpaperRepository.getQueryParams/setQueryParams/deleteQueryParams()` reads from SQLite. Single-row table with JSON column.
+- [ ] **Favorites repository update** — `favoritesRepository` CRUD operations use SQL queries instead of read-modify-write on JSON blob. Collections and favorites in separate tables with FK constraint.
+- [ ] **Main process settings read** — `download-queue.ts` and `download.handler.ts` read settings via SQLite prepared statement instead of `store.get('appSettings')`.
+- [ ] **IPC handler simplification** — `store.handler.ts` no longer needs to handle `store-get`/`store-set`/`store-delete`/`store-clear` for the 4 migrated domains.
 
-### Add After Validation (v4.x)
+### Add After Validation (v1.x)
 
-Features to add once the core retry and concurrency are stable.
+Features to add once core migration is verified.
 
-- [ ] **Persistent retry state** — Save retry count and next-retry timestamp in `.download.json` state files. On app restart, resume retry timers rather than starting from zero.
-- [ ] **Retry notification** — When a download is retried (not failed, but retrying), show a non-intrusive toast/snackbar rather than the current error dialog.
-- [ ] **Concurrent download change applied live** — If user changes the `maxConcurrentDownloads` slider while downloads are running, immediately adjust the slot count without restarting anything.
+- [ ] **Redundant settings.json cleanup** — Remove `settings.handler.ts` IPC handlers and the legacy `{userData}/settings.json` file. This is dead code that nobody calls through the current app flow.
+- [ ] **electron-store dependency removal** — Remove `electron-store` from `package.json`, delete `electron/main/store.ts`, remove `store` imports. Only after confirming no code path still reads from electron-store.
+- [ ] **Preload cleanup** — Remove `storeGet`/`storeSet`/`storeDelete`/`storeClear` from preload context bridge if no IPC handlers remain. Reduces preload surface area.
 
-### Future Consideration (v5+)
+### Future Consideration (v2+)
 
-Features to defer until the core concurrent download system is proven stable.
+Features to defer until data migration is stable.
 
-- [ ] **Queue reordering** — Drag-and-drop reorder of waiting tasks. Only valuable if users frequently have long queues.
-- [ ] **Per-task retry configuration** — Right-click menu to set max retries per download. Adds UI complexity for a niche need.
-- [ ] **Segmented multi-threaded downloads** — Splitting a single wallpaper into HTTP Range chunks for parallel download. Marginal benefit for typical wallpaper sizes (1-20 MB). Revisit if 4K/8K wallpapers are common.
+- [ ] **Settings backup/restore** — Export settings to JSON file for user backup. Low priority since SQLite is already crash-safe with WAL.
+- [ ] **Favorites full-text search** — Add FTS5 virtual table for searching collection names. Not needed until users have hundreds of favorites.
+- [ ] **Data integrity verification** — `PRAGMA integrity_check` on startup to detect corruption. Only needed if users report data issues.
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Concurrent download enforcement | HIGH | MEDIUM | P1 |
-| Auto-start queued tasks | HIGH | LOW | P1 |
-| Waiting state in UI | MEDIUM | LOW | P1 |
-| Automatic retry with exponential backoff | HIGH | MEDIUM | P1 |
-| Error classification | HIGH | LOW | P1 |
-| Retry status in UI | MEDIUM | LOW | P1 |
-| Manual retry button | MEDIUM | LOW | P1 |
-| Persistent retry state | LOW | MEDIUM | P2 |
-| Live concurrency limit change | MEDIUM | MEDIUM | P2 |
-| Retry notification (non-intrusive) | LOW | LOW | P2 |
-| Queue reordering | LOW | HIGH | P3 |
-| Per-task retry config | LOW | MEDIUM | P3 |
-| Segmented single-file downloads | LOW | HIGH | P3 |
+| Data migration with zero loss | HIGH | MEDIUM (transactional script, 4 domains) | P0 |
+| App startup without regression | HIGH | LOW (Repository swap at import level) | P0 |
+| Settings read/write | HIGH | LOW (4 key-value rows with repository adapter) | P0 |
+| Download queue reads settings | HIGH | LOW (synchronous prepared statement) | P0 |
+| Favorites CRUD | MEDIUM | MEDIUM (collections + favorites tables, FK) | P0 |
+| Download history | MEDIUM | LOW (single table with ORDER BY + LIMIT) | P0 |
+| Search params | LOW | LOW (single JSON row) | P0 |
+| Partial settings read (main process) | LOW | LOW (prepared statement by key) | P1 |
+| O(1) favorites lookup | LOW | LOW (index on wallpaper_id) | P1 |
+| Atomic collection delete with cascade | MEDIUM | LOW (ON DELETE CASCADE) | P1 |
+| Redundant settings.json removal | LOW | LOW (dead code deletion) | P2 |
+| electron-store dependency removal | LOW | LOW (package.json + import cleanup) | P2 |
+| Preload cleanup | LOW | LOW (context bridge removal) | P2 |
 
 **Priority key:**
-- P1: Must have for v4.0 MVP
-- P2: Should have, add when core is stable
-- P3: Nice to have, defer
+- P0: Must have for launch (user data safety, no regression)
+- P1: Should have for this milestone (enables SQLite's advantages)
+- P2: Nice to have, cleanup after verification
 
-## Feature Gap Analysis: Current vs. Target
-
-| Area | Current State (v3.0) | Target State (v4.0) |
-|------|---------------------|---------------------|
-| **Concurrency control** | None — every `startDownloadTask` IPC call immediately initiates a download. | Queue manager in main process enforces limit using `maxConcurrentDownloads` setting. Tasks at capacity enter waiting state. |
-| **Queue management** | No queue exists. `activeDownloads` Map tracks active tasks only. | `waitingQueue: DownloadRequest[]` alongside `activeDownloads: Map<string, ActiveDownload>`. Dequeue triggered on complete/fail/cancel. |
-| **Waiting state** | `DownloadItem.state` has `'waiting'` in the type but no code path ever produces it. | Renderer shows waiting indicator. Main process reports state transitions via `download-progress` IPC. |
-| **Error handling** | All errors → `state: 'failed'` + `showError('下载失败: ${error}')`. No retry. | Errors classified. Retryable → auto-retry with backoff. Permanent → immediate fail + retry button. |
-| **Progress IPC** | States: `'downloading' | 'paused' | 'waiting' | 'completed' | 'failed'` | Add `'retrying'` state. Extend `DownloadProgressData` with `retryCount` and `retryDelay` fields. |
-| **Settings usage** | `maxConcurrentDownloads` saved but never read by download pipeline. | Downloaded pipeline reads setting at task submission time. Could be read on each slot-free event for live adjustment. |
-| **State file** | Contains: taskId, url, filename, saveDir, offset, totalSize, createdAt, updatedAt | Add: `retryCount: number`, `nextRetryAt: string | null` |
-
-## Implementation Architecture Notes
-
-### Where the Queue Lives
-
-The queue MUST live in the **main process** (`download.handler.ts`), not the renderer. Reasons:
-
-1. **Persistence**: State files are written by the main process. If the renderer crashes, the queue state is lost.
-2. **IPC overhead**: If the renderer manages the queue, every slot-free event requires a round-trip IPC call ("slot free, what next?"). This adds latency and complexity.
-3. **Single source of truth**: The main process already owns the `activeDownloads` Map. Adding a queue alongside it is the natural extension.
-4. **Settings access**: Settings are read from Electron store in the main process. Passing settings to renderer just to queue tasks adds unnecessary data flow.
-
-### Queue Architecture
+## Data Migration Schema Mapping
 
 ```
-activeDownloads: Map<string, ActiveDownload>   // currently downloading
-waitingQueue: DownloadRequest[]                 // waiting for slot (FIFO)
+electron-store (wallhaven-data.json)          SQLite (wallhaven-data.db)
+========================================      ====================
 
-startDownloadTask(task):
-  if activeDownloads.size < maxConcurrentDownloads:
-    activeDownloads.set(taskId, new ActiveDownload(...))
-    start actual download
-    return { success: true }
-  else:
-    waitingQueue.push(task)
-    send progress { state: 'waiting', queuePosition: waitingQueue.length }
-    return { success: true, queued: true }
+appSettings: {                                settings table (key-value rows):
+  downloadPath           ──────────────►        key='downloadPath' → value
+  maxConcurrentDownloads ──────────────►        key='maxConcurrentDownloads' → value
+  apiKey                 ──────────────►        key='apiKey' → value
+  wallpaperFit           ──────────────►        key='wallpaperFit' → value
 
-onDownloadComplete / onDownloadFailed / onDownloadCancelled(taskId):
-  activeDownloads.delete(taskId)
-  if waitingQueue.length > 0:
-    next = waitingQueue.shift()
-    activeDownloads.set(next.taskId, new ActiveDownload(...))
-    start actual download
-```
+wallpaperQueryParams: {                       search_params table (singleton row):
+  selector, keyword, etc.  ──────────────►      id=1, params=JSON({...})
 
-### Retry State Machine
+downloadFinishedList: [                      download_history table (one row per item):
+  { id, url, filename, path,                   id, wallpaper_id, url, filename,
+    resolution, size, time, ... }               path, resolution, size, time
+  ]                                             Note: state/progress/offset/speed/retry*
+                                                only relevant for active downloads.
 
-```
-[downloading] ──error (retryable)──> [retrying] ──timer──> [downloading]
-    │                                    │                     │
-    │                              permanent fail              │
-    │                              OR max retries              │
-    v                                    v                     v
-[failed] ──manual retry button──> [waiting] ──slot free──> [downloading]
-    ^                                                        │
-    └──────────────────── complete ──────────────────────────┘
-```
-
-### IPC Protocol Changes
-
-Current `download-progress` message:
-```typescript
-interface DownloadProgressData {
-  taskId: string
-  progress: number
-  offset: number
-  speed: number
-  state: 'downloading' | 'paused' | 'waiting' | 'completed' | 'failed'
-  filePath?: string
-  error?: string
-  totalSize?: number
-  resumeNotSupported?: boolean
-}
-```
-
-Extended for v4.0:
-```typescript
-interface DownloadProgressData {
-  taskId: string
-  progress: number
-  offset: number
-  speed: number
-  state: 'downloading' | 'paused' | 'waiting' | 'completed' | 'failed' | 'retrying'
-  filePath?: string
-  error?: string
-  totalSize?: number
-  resumeNotSupported?: boolean
-  retryCount?: number       // NEW: current retry attempt (1-based)
-  maxRetries?: number        // NEW: maximum retry attempts
-  retryDelay?: number        // NEW: delay before next retry in ms
-  queuePosition?: number     // NEW: position in waiting queue
+favoritesData: {                              collections table:
+  collections: [                                id, name, is_default, created_at, updated_at
+    { id, name, isDefault,                    favorites table:
+      createdAt, updatedAt },                   wallpaper_id, collection_id, added_at,
+    ...                                         wallpaper_data (JSON snapshot)
+  ]                                             FK: collection_id → collections(id)
+  favorites: [                                  ON DELETE CASCADE
+    { wallpaperId, collectionId,              PK: (wallpaper_id, collection_id)
+      addedAt, wallpaperData },               Indexes:
+    ...                                         idx_favorites_wallpaper(wallpaper_id)
+  }                                             idx_favorites_collection(collection_id)
 }
 ```
 
 ## Sources
 
-- **aria2 architecture** (C++): Reference for event-driven concurrent download engine with RequestGroupMan scheduler and segment management. [DeepWiki](https://deepwiki.com/aria2/aria2/2-core-architecture)
-- **AB Download Manager**: Modern Compose-based desktop download manager with queue and scheduling UI. [GitCode](https://blog.gitcode.com/652651c66bea6d5aa5b1471cbea9f6ed.html)
-- **paradown** (Rust): Multi-threaded CLI downloader with configurable exponential backoff retry. [docs.rs](https://docs.rs/crate/paradown/0.1.1)
-- **@transferx/downloader** (Node.js): 8-way parallel downloader with EMA progress, adaptive concurrency, byte-level resume. [npm](https://www.npmjs.com/package/@transferx/downloader)
-- **cwait** (npm): Promise-based concurrency limiter pattern. [npm](https://www.npmjs.com/package/cwait)
-- **Worker pool pattern**: Thread pool pattern for concurrent task execution with resource limits. [Socket](https://socket.dev/npm/package/workerpool)
-- **Existing codebase analysis**: `download.handler.ts`, `download.service.ts`, `useDownload.ts`, `download store`, `SettingPage.vue` — all analyzed for current state vs. target state.
+- Existing codebase analysis:
+  - `electron/main/store.ts` — electron-store instance with defaults
+  - `electron/main/ipc/handlers/store.handler.ts` — IPC bridge to electron-store
+  - `electron/main/ipc/handlers/settings.handler.ts` — redundant legacy settings.json persistence (dead code)
+  - `electron/main/ipc/handlers/download.handler.ts` — direct `store.get('appSettings')` at line 1005
+  - `electron/main/ipc/handlers/download-queue.ts` — direct `store.get('appSettings')` at line 94
+  - `src/repositories/settings.repository.ts` — IPC-based data access pattern
+  - `src/repositories/download.repository.ts` — IPC-based data access with read-modify-write
+  - `src/repositories/wallpaper.repository.ts` — IPC-based data access (simple)
+  - `src/repositories/favorites.repository.ts` — IPC-based data access with full-blob read-modify-write
+  - `src/clients/electron.client.ts` — storeGet/storeSet with JSON deep clone for IPC safety
+  - `electron/preload/index.ts` — storeGet/storeSet context bridge methods
+  - `src/types/favorite.ts` — Collection, FavoriteItem, FavoritesData type definitions
+  - `src/types/index.ts` — AppSettings (4 fields), FinishedDownloadItem, CustomParams types
+  - `src/clients/constants.ts` — STORAGE_KEYS mapping (APP_SETTINGS, DOWNLOAD_FINISHED_LIST, WALLPAPER_QUERY_PARAMS, FAVORITES_DATA)
+  - `package.json` — electron-store v11.0.2 (current), no SQLite dependency yet
+- Web research: electron-store to SQLite migration patterns (Canopy IDE issue #2707, ito issue #127)
+- Web research: SQLite schema versioning with migrations table pattern
+- Web research: WAL journaling `PRAGMA journal_mode=WAL` for crash safety in Electron apps
+- SQLite documentation: `PRAGMA foreign_keys = ON`, `ON DELETE CASCADE`, transactions, indexes
+- [Node.js 24 `node:sqlite` Documentation](https://nodejs.org/download/nightly/v24.0.0-nightly20250503f552c86fec/docs/api/sqlite.html) — Official API reference for DatabaseSync, StatementSync
+- [Electron 41.0.0 Release Announcement](https://az.electronjs.org/blog/electron-41-0) — Confirms Node.js v24.14.0 with `node:sqlite`
 
 ---
-*Feature research for: v4.0 Multi-threaded download with retry backoff*
-*Researched: 2026-05-01*
+*Feature research for: v5.0 electron-store to SQLite migration*
+*Researched: 2026-05-03*

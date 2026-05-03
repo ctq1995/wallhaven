@@ -1,702 +1,766 @@
-# Architecture Research: Concurrent Download Control + Retry Backoff
+# Architecture Research: electron-store to SQLite Migration
 
-**Domain:** Electron download manager with queue and retry
-**Researched:** 2026-05-01
+**Domain:** Electron desktop wallpaper browser — migrating persistent storage from electron-store (JSON file) to SQLite (node:sqlite)
+**Researched:** 2026-05-03
 **Confidence:** HIGH
 
-## Overview
+## Executive Summary
 
-This document describes the new components and data flow changes needed to add true concurrent download control and retry-with-backoff to the existing layered Electron app. The architecture extends the existing `Client -> Repository -> Service -> Composable -> View` pattern without restructuring any existing layers.
+This document describes the new components, data flow changes, and integration strategy for replacing electron-store with SQLite in the existing 5-layer Electron + Vue 3 + TypeScript application. The migration keeps the existing `Client -> Repository -> Service -> Composable -> View` architecture intact while replacing the storage backend and introducing domain-specific IPC channels in place of the current generic store channels.
 
-**Key principle:** The queue and retry logic live at the **Service Layer** (renderer side), not in the main process handler. This keeps the handler thin (stateless execution), maintains Vue reactivity for UI state, and fits the existing pattern where the service orchestrates workflows.
+**Key insight:** The current architecture already has good separation of concerns — repositories abstract storage behind `electronClient.storeGet/storeSet`. The migration preserves this pattern but replaces the IPC backend: instead of 4 generic store IPC channels that map to a JSON file, domain-specific IPC channels map to SQLite queries. The Database module in the main process replaces `electron-store` as the persistence layer, mirroring the existing `store.ts` singleton pattern but using Node.js's built-in `node:sqlite` module (available in Node.js 24.14+, which ships with Electron 41).
+
+**Architectural principle:** The migration is a **backend swap**, not a layer restructuring. Every existing layer keeps its role. The repository API surface (method signatures, return types) remains identical so that services, composables, and views are completely unaware of the change.
+
+**Technology choice:** `node:sqlite` (Node.js built-in) instead of `better-sqlite3`. The built-in module provides the same synchronous API with zero new dependencies, zero native module rebuild concerns, and zero build pipeline changes. Electron 41 ships Node.js 24.14+ which includes `node:sqlite` at Stability 1.1 with no experimental flag required. The only cost is a ~30-line custom TypeScript declaration file since `@types/node` does not include `node:sqlite` types.
 
 ---
 
 ## Current Architecture (Baseline)
 
-### Existing Download Data Flow
+### Storage Data Flow
 
 ```
-useDownload.startDownload(id)
-  -> downloadService.startDownload(id, url, filename)
-    -> electronClient.startDownloadTask({taskId, url, filename, saveDir})
-      -> IPC invoke('start-download-task')
-        -> handler: axios stream download
-          -> webContents.send('download-progress', {state, progress, ...})
-            -> electronClient.onDownloadProgress(callback)
-              -> downloadService.progressCallbacks.forEach(cb)
-                -> useDownload.handleProgress(data)
-                  -> store.updateProgress() / store.completeDownload()
+Renderer Process                          Main Process
+┌──────────────────┐                    ┌──────────────────────────┐
+│  View            │                    │  store.ts                │
+│  (uses composable)│                    │  ┌──────────────────┐   │
+│       │          │                    │  │ new Store({       │   │
+│       ▼          │                    │  │   name: 'wallhaven│   │
+│  Composable      │                    │  │   -data'          │   │
+│  (useSettings,   │                    │  └──────────────────┘   │
+│   useDownload,   │                    │           │             │
+│   useFavorites)  │                    │           ▼             │
+│       │          │                    │  store.handler.ts       │
+│       ▼          │                    │  ┌──────────────────┐   │
+│  Service         │                    │  │ 'store-get'     │   │
+│  (orchestrates)  │                    │  │ 'store-set'     │   │
+│       │          │                    │  │ 'store-delete'  │   │
+│       ▼          │                    │  │ 'store-clear'   │   │
+│  Repository      │                    │  └──────────────────┘   │
+│  (4 repos)       │                    │           │             │
+│       │          │                    │           ▼             │
+│       ▼          │                    │  electron-store         │
+│  Client (IPC)    │  ◄── IPC ──────►  │  (JSON file on disk)    │
+│  electronClient  │                    │                          │
+└──────────────────┘                    │  Direct store imports:  │
+                                        │  ┌──────────────────┐   │
+                                        │  │ download-queue.ts│   │
+                                        │  │ download.handler │   │
+                                        │  │   .ts            │   │
+                                        │  └──────────────────┘   │
+                                        └──────────────────────────┘
 ```
 
-### What Exists Today
+### What Currently Uses electron-store
 
-| Aspect | Current State |
-|--------|---------------|
-| `maxConcurrentDownloads` setting | Stored in `AppSettings`, default 3, but **not enforced anywhere** |
-| Download initiation | Every `startDownload` call immediately invokes IPC -- no queue |
-| Failure handling | Error shown to user, task marked `failed`, temp file kept |
-| Retry | **None** -- user must manually retry |
-| Active download tracking | `Map<string, ActiveDownload>` in `download.handler.ts` (main process) |
-| Progress subscription | `Set<ProgressCallback>` in `DownloadService` (renderer) |
+**Renderer-side (via 4 generic IPC channels):**
+
+| Repository | electron-store Key | Data Shape | Operations | IPC Calls Per Op |
+|------------|-------------------|------------|------------|------------------|
+| `settings.repository.ts` | `appSettings` | `AppSettings` JSON | get, set, delete | 1 per call |
+| `wallpaper.repository.ts` | `wallpaperQueryParams` | `CustomParams` JSON | get, set, delete | 1 per call |
+| `download.repository.ts` | `downloadFinishedList` | `FinishedDownloadItem[]` | get, set, add, remove, clear | 2 for add/remove (get+set) |
+| `favorites.repository.ts` | `favoritesData` | `FavoritesData` JSON (collections + favorites + version) | getData, setData, createCollection, renameCollection, deleteCollection, setDefaultCollection, getFavorites, addFavorite, removeFavorite, moveFavorite, isFavorite, getCollectionsForWallpaper | 2 per mutation (get+set) |
+
+**Main process direct reads (synchronous `store.get()`):**
+
+| File | What It Reads | Why Sync |
+|------|--------------|----------|
+| `download-queue.ts` (line 94) | `store.get('appSettings')` to read `maxConcurrentDownloads` | Queue processing is synchronous |
+| `download.handler.ts` (line 1005) | `store.get('appSettings.downloadPath')` to find pending downloads | Handler init is synchronous |
+
+**Redundant settings mechanism:**
+- `settings.handler.ts` also handles `save-settings`/`load-settings` IPC channels that read/write a separate `settings.json` file in `userData`. This is a SECOND persistence path alongside electron-store's `appSettings` key. The repositories use the electron-store path. This redundancy should be consolidated during migration.
+
+### Important: Preload Type Duplication
+
+The preload script (`electron/preload/index.ts`) defines its own `ElectronAPI` interface with store methods typed manually:
+```typescript
+storeGet: (key: string) => Promise<{ success: boolean; value: any; error?: string }>
+storeSet: (params: { key: string; value: any }) => Promise<{ success: boolean; error?: string }>
+```
+
+The `electronClient` (`src/clients/electron.client.ts`) wraps these with `IpcResponse<T>` typing. Both the preload types and IPC channel whitelist (`electron/preload/types.ts`) must be considered during migration.
 
 ---
 
-## New Components
+## Recommended Target Architecture
 
-Two new classes at the Service Layer, plus supporting types:
-
-```
-src/services/download/
-├── download.service.ts         (MODIFIED -- integrate queue + retry)
-├── download.queue.ts           (NEW -- concurrent download queue)
-├── retry.scheduler.ts          (NEW -- retry with exponential backoff)
-└── types.ts                    (NEW -- queue/retry internal types)
-```
-
-### 1. DownloadQueue
-
-**File:** `src/services/download/download.queue.ts`
-
-**Purpose:** Ensure no more than N downloads run concurrently. Manages a FIFO waitlist of tasks waiting for a slot.
+### System Overview
 
 ```
-class DownloadQueue {
-  private maxConcurrent: number
-  private activeCount: number
-  private waitingQueue: string[]   // taskId FIFO
-
-  enqueue(taskId: string): 'immediate' | 'queued'
-    // Returns 'immediate' if slot available, 'queued' if added to waitlist
-
-  dequeue(): string | null
-    // Pops next waiting taskId, increments activeCount
-
-  release(taskId: string): string | null
-    // Decrements activeCount, calls dequeue(), returns next taskId or null
-
-  cancel(taskId: string): void
-    // Removes from waitingQueue if present
-
-  setConcurrency(n: number): void
-    // Dynamic change -- if increasing, dequeue() to fill new slots
-
-  getStatus(): QueueStatus
-    // { activeCount, waitingCount, maxConcurrent }
-
-  isActive(taskId: string): boolean
-    // Whether taskId holds a slot (active or was active and retrying)
-}
+Renderer Process                          Main Process
+┌──────────────────┐                    ┌──────────────────────────────┐
+│  View            │                    │  SQLite (node:sqlite)        │
+│       │          │                    │  ┌────────────────────────┐ │
+│       ▼          │                    │  │ database.ts            │ │
+│  Composable      │                    │  │  ├── getDatabase()     │ │
+│       │          │                    │  │  ├── withTransaction() │ │
+│       ▼          │                    │  │  └── closeDatabase()   │ │
+│  Service         │                    │  └────────────────────────┘ │
+│       │          │                    │           │                 │
+│       ▼          │                    │           ▼                 │
+│  Repository      │                    │  store.handler.ts           │
+│  (4 repos)       │                    │  ┌────────────────────────┐ │
+│  UNCHANGED API   │                    │  │ 'store-get' → SQLite   │ │
+│       │          │                    │  │ 'store-set' → SQLite   │ │
+│       ▼          │                    │  │ 'store-delete' → SQLite│ │
+│  Client (IPC)    │  ◄── IPC ──────►  │  │ 'store-clear' → SQLite │ │
+│  electronClient  │                    │  └────────────────────────┘ │
+│  UNCHANGED API   │                    │                             │
+└──────────────────┘                    │  Direct DB access:          │
+                                        │  import { getDatabase }     │
+                                        │    from '../../database'    │
+                                        │  ┌──────────────────┐      │
+                                        │  │ download-queue.ts│      │
+                                        │  │ download.handler │      │
+                                        │  │   .ts            │      │
+                                        │  └──────────────────┘      │
+                                        └──────────────────────────────┘
 ```
 
-**Why not `p-queue` or `es-toolkit Semaphore`:** A generic promise queue wraps functions. Our queue needs to coordinate with `DownloadItem` state in the Pinia store, hold slots during retry countdown (without consuming CPU), and support dynamic concurrency changes. A custom queue with explicit `enqueue`/`release` is cleaner than wrapping semaphore acquire/release around IPC calls.
+### Key Difference from Current Architecture
 
-**Behavior:**
-- `enqueue()` checks `activeCount < maxConcurrent`. If yes, returns `'immediate'` (caller should start download). If no, pushes to `waitingQueue` and returns `'queued'`.
-- When a download completes or fails permanently, the caller calls `release()`, which pops the next task from the waitlist and returns its `taskId`. The caller is responsible for starting that task.
-- When a download fails and will retry, the **slot is held** (activeCount is NOT decremented). This prevents retries from being starved by new tasks.
-
-**Edge cases:**
-- `maxConcurrent` changes from 3 to 5 while 3 are active: `setConcurrency` immediately dequeues 2 waiting tasks.
-- `maxConcurrent` changes from 5 to 2 while 4 are active: no active tasks are killed; new tasks remain queued until active drops below 2.
-- User cancels a waiting task: removed from `waitingQueue`, never started.
-- All slots full, user adds 10 tasks: 10 queued, 3 active (or whatever maxConcurrent is).
-
-### 2. RetryScheduler
-
-**File:** `src/services/download/retry.scheduler.ts`
-
-**Purpose:** Manage per-task retry state, calculate exponential backoff delays, schedule and cancel retries.
-
-```
-class RetryScheduler {
-  private retryCounts: Map<string, number>
-  private scheduledTimers: Map<string, ReturnType<typeof setTimeout>>
-
-  shouldRetry(taskId: string, errorCategory: ErrorCategory): boolean
-    // Returns true if retryCount < maxRetries AND errorCategory is retryable
-
-  schedule(taskId: string): Promise<void>
-    // Increments retryCount, returns a promise that resolves after backoff delay
-    // The caller awaits this, then retries the download
-
-  cancel(taskId: string): void
-    // Clears the scheduled timer, removes retry state
-
-  reset(taskId: string): void
-    // Clears retry count on successful download
-
-  getRetryInfo(taskId: string): { attempt: number; nextDelayMs: number } | null
-
-  getConfig(): RetryConfig
-  updateConfig(config: Partial<RetryConfig>): void
-}
-```
-
-**Backoff formula:**
-```
-delay = min(baseDelay * 2^attempt + jitter, maxDelay)
-
-Where:
-  baseDelay = 2000ms (2 seconds)
-  maxDelay  = 30000ms (30 seconds)
-  jitter    = random between 0 and delay * 0.2 (20% jitter)
-  attempt   = 0, 1, 2, ... (first retry is attempt 0, second is attempt 1)
-```
-
-**Resulting delays (without jitter):**
-| Retry | Delay  | Cumulative |
-|-------|--------|------------|
-| 1st   | 2s     | 2s         |
-| 2nd   | 4s     | 6s         |
-| 3rd   | 8s     | 14s        |
-| 4th   | 16s    | 30s        |
-| 5th   | 30s    | 60s        |
-
-Max retries defaults to **3** (configurable). After max retries, task is marked permanently failed.
-
-**Why not `p-retry`:** `p-retry` wraps a function in retry logic. Our retry needs to:
-- Hold a queue slot during the backoff countdown
-- Use `resumeDownload` (not `startDownload`) to leverage Range headers
-- Let the user cancel a retry mid-countdown
-- Integrate with existing progress callback flow
-
-These don't map well to `p-retry`'s function-wrapper API. A dedicated scheduler is simpler.
+| Aspect | Current | Target |
+|--------|---------|--------|
+| Storage backend | electron-store (JSON file) | node:sqlite (SQLite file, built-in) |
+| IPC channels | 4 generic (store-get/set/delete/clear) | Same 4 channels (backward compatible) |
+| IPC handler implementation | `store.get(key)` | `db.prepare('SELECT value FROM settings WHERE key = ?').get(key)` |
+| Main-process data access | `store.get('key')` synchronous | `getDatabase().prepare(...).get(key)` synchronous |
+| Data format | Full JSON blob per key | Relational tables with queries |
+| Schema | Implicit (defaults in Store constructor) | Explicit (CREATE TABLE in database.ts init) |
+| Data migration | N/A | One-time migration on first SQLite launch |
+| Dependencies added | None (electron-store removed) | None (node:sqlite is built-in) |
 
 ---
 
-## Modified Existing Files
+## New / Modified Files
 
-### 1. `src/services/download.service.ts` -- MODIFIED
+### 1. `electron/main/database.ts` — NEW
 
-**Changes:**
-- Import and instantiate `DownloadQueue` and `RetryScheduler`
-- Modify `startDownload()` to go through queue
-- Add `retryFailedTask()` method
-- Expose queue status and retry info
+**Purpose:** Singleton accessor for `node:sqlite` DatabaseSync, schema initialization, and transaction helper. Replaces `electron/main/store.ts` as the persistence module.
 
 ```typescript
-class DownloadServiceImpl {
-  private queue = new DownloadQueue()
-  private retry = new RetryScheduler()
+// electron/main/database.ts
+import { DatabaseSync } from 'node:sqlite'
+import { app } from 'electron'
+import { join } from 'path'
 
-  async startDownload(taskId: string, url: string, filename: string): Promise<IpcResponse<string>> {
-    const result = this.queue.enqueue(taskId)
+let db: DatabaseSync
 
-    if (result === 'queued') {
-      // Task is waiting -- update store state to 'waiting'
-      // (caller handles this via return value or callback)
-      return { success: true, data: 'queued' }
-    }
-
-    // Slot available -- proceed with actual download
-    return this.executeDownload(taskId, url, filename)
+export function getDatabase(): DatabaseSync {
+  if (!db) {
+    db = new DatabaseSync(join(app.getPath('userData'), 'wallhaven-data.db'), {
+      enableForeignKeyConstraints: true,
+      timeout: 5000
+    })
+    initializeSchema()
   }
+  return db
+}
 
-  private async executeDownload(taskId: string, url: string, filename: string): Promise<IpcResponse<string>> {
-    // ... existing startDownload logic (get path, call IPC) ...
+function initializeSchema(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS search_params (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS download_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      data TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS collections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS favorites (
+      collection_id TEXT NOT NULL,
+      wallpaper_id TEXT NOT NULL,
+      wallpaper_data TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (collection_id, wallpaper_id),
+      FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_favorites_wallpaper
+      ON favorites(wallpaper_id);
+    CREATE INDEX IF NOT EXISTS idx_download_history_created
+      ON download_history(created_at DESC);
+  `)
+}
+
+export function withTransaction<T>(fn: () => T): T {
+  const d = getDatabase()
+  try {
+    d.exec('BEGIN')
+    const result = fn()
+    d.exec('COMMIT')
+    return result
+  } catch (error) {
+    d.exec('ROLLBACK')
+    throw error
   }
+}
 
-  onTaskCompleted(taskId: string): void {
-    this.retry.reset(taskId)
-    const nextTaskId = this.queue.release(taskId)
-    if (nextTaskId) {
-      this.startNextQueuedTask(nextTaskId)
-    }
-  }
-
-  onTaskFailed(taskId: string, errorCategory: ErrorCategory): void {
-    if (this.retry.shouldRetry(taskId, errorCategory)) {
-      // Hold queue slot, schedule retry
-      this.retry.schedule(taskId).then(() => {
-        // Backoff delay elapsed, resume download
-        return this.resumeDownload(taskId, /* pending info */)
-      })
-    } else {
-      // Permanent failure -- release slot
-      this.retry.reset(taskId)
-      const nextTaskId = this.queue.release(taskId)
-      if (nextTaskId) this.startNextQueuedTask(nextTaskId)
-    }
-  }
-
-  getQueueStatus(): QueueStatus {
-    return this.queue.getStatus()
-  }
-
-  getRetryInfo(taskId: string): { attempt: number; nextDelayMs: number } | null {
-    return this.retry.getRetryInfo(taskId)
+export function closeDatabase(): void {
+  if (db) {
+    db.close()
+    db = undefined as unknown as DatabaseSync
   }
 }
 ```
 
-### 2. `src/composables/download/useDownload.ts` -- MODIFIED
+### 2. `electron/main/sqlite.d.ts` — NEW
 
-**Changes:**
-- Progress handler distinguishes terminal failure vs. retryable failure
-- Exposes queue status and retry info to views
-- Handles `state: 'retrying'` in progress callback
-- `startDownload()` returns queue status info, not just boolean
-
-**New progress state handling:**
+**Purpose:** TypeScript type declarations for `node:sqlite`. Required because `@types/node` does not include `node:sqlite` types (Stability 1.1, DefinitelyTyped skips experimental modules).
 
 ```typescript
-const handleProgress = (data: DownloadProgressData): void => {
-  const { taskId, state, error, errorCategory } = data
+// electron/main/sqlite.d.ts
+declare module 'node:sqlite' {
+  type BindParams = Record<string, unknown> | unknown[]
 
-  if (state === 'failed') {
-    // Notify service -- it decides whether to retry
-    downloadService.onTaskFailed(taskId, errorCategory || 'network')
-    // If retry was scheduled, the slot is held
-    // (no immediate UI error -- retry state will be shown)
-    return
+  interface RunResult {
+    lastInsertRowid: number
+    changes: number
   }
 
-  if (state === 'completed') {
-    downloadService.onTaskCompleted(taskId)
+  interface DatabaseOptions {
+    enableForeignKeyConstraints?: boolean
+    timeout?: number
   }
 
-  // ... existing progress handling ...
+  interface ColumnInfo {
+    name: string
+    column: string | null
+    table: string | null
+    database: string | null
+    type: string | null
+  }
+
+  export class StatementSync<T extends Record<string, unknown> = Record<string, unknown>> {
+    all(...params: BindParams[]): T[]
+    get(...params: BindParams[]): T | undefined
+    run(...params: BindParams[]): RunResult
+    iterate(...params: BindParams[]): IterableIterator<T>
+    columns(): ColumnInfo[]
+  }
+
+  export class DatabaseSync {
+    constructor(location: string, options?: DatabaseOptions)
+    close(): void
+    exec(sql: string): void
+    prepare<T extends Record<string, unknown> = Record<string, unknown>>(
+      sql: string
+    ): StatementSync<T>
+    readonly isOpen: boolean
+    readonly isTransaction: boolean
+  }
 }
 ```
 
-### 3. `src/stores/modules/download/index.ts` -- MODIFIED
+### 3. `electron/main/migrate.ts` — NEW
 
-**Changes:**
-- Add `'retrying'` to `DownloadItem.state` union
-- (Optionally) add queue position tracking
-
-### 4. `src/composables/settings/useSettings.ts` -- MODIFIED
-
-**Changes:**
-- When `maxConcurrentDownloads` changes, propagate to `DownloadService.queue.setConcurrency(n)`
-
-### 5. `electron/main/ipc/handlers/download.handler.ts` -- MINIMAL CHANGE
-
-**Changes:**
-- Add `errorCategory` to failed progress data so renderer can decide retry eligibility
+**Purpose:** One-time startup migration that reads data from electron-store and inserts into SQLite. Runs before IPC handlers register, after database initialization.
 
 ```typescript
-function categorizeError(error: any): ErrorCategory {
-  if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
-    return 'network'
-  }
-  if (error.response?.status === 429) return 'rate_limit'
-  if (error.response?.status && error.response.status >= 500) return 'server'
-  if (error.response?.status && error.response.status < 500) return 'permanent'
-  return 'network'
-}
+// electron/main/migrate.ts
+import { store } from './store' // kept during migration
+import { getDatabase, withTransaction } from './database'
 
-// In the catch block:
-windows[0].webContents.send('download-progress', {
-  taskId,
-  state: 'failed',
-  error: error.message,
-  errorCategory: categorizeError(error),  // NEW
+export function migrateFromElectronStore(): boolean {
+  const db = getDatabase()
+
+  // Guard: skip if already migrated
+  const row = db.prepare('SELECT 1 FROM settings WHERE key = ?').get('_migrated_from_store')
+  if (row) return false
+
+  return withTransaction(() => {
+    // 1. Settings
+    const appSettings = store.get('appSettings')
+    if (appSettings !== undefined) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+        .run('appSettings', JSON.stringify(appSettings))
+    }
+
+    // 2. Search params
+    const searchParams = store.get('wallpaperQueryParams')
+    if (searchParams !== undefined) {
+      db.prepare('INSERT OR REPLACE INTO search_params (id, value) VALUES (1, ?)')
+        .run(JSON.stringify(searchParams))
+    }
+
+    // 3. Download history
+    const downloads = store.get('downloadFinishedList') as unknown[]
+    if (Array.isArray(downloads)) {
+      const stmt = db.prepare('INSERT INTO download_history (data) VALUES (?)')
+      for (const item of downloads) stmt.run(JSON.stringify(item))
+    }
+
+    // 4. Collections + Favorites
+    const favoritesData = store.get('favoritesData') as Record<string, unknown> | null
+    if (favoritesData) {
+      const collections = favoritesData['collections'] as Array<Record<string, unknown>> | undefined
+      if (collections) {
+        const stmt = db.prepare(
+          'INSERT OR REPLACE INTO collections (id, name, is_default, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        )
+        for (const c of collections) {
+          stmt.run(c['id'], c['name'], c['isDefault'] ? 1 : 0, c['sortOrder'] ?? 0,
+            c['createdAt'] ?? new Date().toISOString(), c['updatedAt'] ?? new Date().toISOString())
+        }
+      }
+
+      const favorites = favoritesData['favorites'] as Array<Record<string, unknown>> | undefined
+      if (favorites) {
+        const stmt = db.prepare(
+          'INSERT OR REPLACE INTO favorites (collection_id, wallpaper_id, wallpaper_data, added_at) VALUES (?, ?, ?, ?)'
+        )
+        for (const f of favorites) {
+          stmt.run(f['collectionId'], f['wallpaperId'],
+            JSON.stringify(f['wallpaperData'] ?? f), f['addedAt'] ?? new Date().toISOString())
+        }
+      }
+    }
+
+    // 5. Mark migration complete
+    db.prepare("INSERT INTO settings (key, value) VALUES ('_migrated_from_store', '1')").run()
+  })
+}
+```
+
+### 4. `electron/main/store.ts` — REMOVED (after migration complete)
+
+Kept during migration phases for the migration script to read from. Removed in final cleanup.
+
+### 5. `electron/main/ipc/handlers/store.handler.ts` — MODIFIED
+
+The IPC handler signatures remain unchanged (backward compatible). Only the implementation changes:
+
+```typescript
+// CURRENT (electron-store):
+ipcMain.handle('store-get', (_event, key: string) => {
+  const value = store.get(key)
+  return { success: true, value }
+})
+
+// FUTURE (node:sqlite):
+ipcMain.handle('store-get', (_event, key: string) => {
+  const row = getDatabase()
+    .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+    .get(key)
+  const value = row ? JSON.parse(row.value) : null
+  return { success: true, value }
 })
 ```
 
-### 6. `src/shared/types/ipc.ts` and `src/types/index.ts` -- MODIFIED
-
-**Changes:**
-- Add `'retrying'` to `DownloadProgressData.state` and `DownloadItem.state`
-- Add `errorCategory` field to `DownloadProgressData`
-- Add `RetryConfig`, `QueueStatus`, `ErrorCategory` types
-
----
-
-## Type Definitions
-
-### New types in `src/services/download/types.ts`
+### 6. `electron/main/ipc/handlers/download-queue.ts` — MODIFIED
 
 ```typescript
-export type ErrorCategory = 'network' | 'server' | 'rate_limit' | 'permanent'
+// CURRENT (electron-store):
+import { store } from '../../store'
+const appSettings = store.get('appSettings') as unknown as { maxConcurrentDownloads?: number } | undefined
 
-export interface RetryConfig {
-  maxRetries: number       // default: 3
-  baseDelayMs: number      // default: 2000
-  maxDelayMs: number       // default: 30000
-  jitterFactor: number     // default: 0.2
-}
-
-export interface QueueStatus {
-  activeCount: number
-  waitingCount: number
-  maxConcurrent: number
-  isIdle: boolean
-}
-
-export type EnqueueResult = 'immediate' | 'queued'
+// FUTURE (node:sqlite):
+import { getDatabase } from '../../database'
+const row = getDatabase()
+  .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+  .get('appSettings')
+const appSettings = row ? JSON.parse(row.value) : null
 ```
 
-### Type extensions in `src/shared/types/ipc.ts`
+### 7. `electron/main/ipc/handlers/download.handler.ts` — MODIFIED
 
-```typescript
-// Extend DownloadProgressData
-export interface DownloadProgressData {
-  taskId: string
-  progress: number
-  offset: number
-  speed: number
-  state: 'downloading' | 'paused' | 'waiting' | 'retrying' | 'completed' | 'failed'
-  filePath?: string
-  error?: string
-  errorCategory?: ErrorCategory  // NEW: for retry decision
-  totalSize?: number
-  resumeNotSupported?: boolean
-}
-```
+Same pattern: replace `store?.get('appSettings.downloadPath')` with a SQLite query via `getDatabase()`.
 
-### Type extensions in `src/types/index.ts`
+### 8. Renderer-side files — NO CHANGES
 
-```typescript
-// Extend DownloadState
-export type DownloadState = 'downloading' | 'paused' | 'waiting' | 'retrying' | 'completed' | 'failed'
-```
+All renderer-side files (`repositories/*.ts`, `services/*.ts`, `composables/*.ts`, `views/*.vue`, `clients/*.ts`) remain **completely unchanged** during the migration. The IPC channel names and return shapes are identical:
+
+- `store-get('appSettings')` → `{ success: true, value: { ... } }` (same shape)
+- `store-set({ key: 'appSettings', value: { ... } })` → `{ success: true }` (same shape)
 
 ---
 
 ## Data Flow Diagrams
 
-### Happy Path: Download with Queue
+### Current Flow (Settings Read)
 
 ```
-User clicks download (wallpaper X)
-  │
-  ├─ useDownload.addTask({...}) -> store.downloadingList.push('waiting')
-  │
-  ├─ useDownload.startDownload(id)
-  │    └─ downloadService.startDownload(id, url, filename)
-  │         └─ queue.enqueue(id)
-  │              ├─ Slot available? -> 'immediate'
-  │              └─ executeDownload(id, url, filename)
-  │                   └─ electronClient.startDownloadTask(...)
-  │                        └─ IPC -> handler -> axios stream
-  │
-  ├─ Progress: state='downloading', progress=37%
-  │    └─ store.updateProgress(id, 37, ...)
-  │
-  ├─ Progress: state='completed'
-  │    └─ downloadService.onTaskCompleted(id)
-  │         ├─ retry.reset(id)
-  │         └─ queue.release(id)
-  │              └─ dequeue() -> start next waiting task
-  │
-  └─ store.completeDownload(id, filePath)
+useSettings() → settingsService.getSettings()
+  → settingsRepository.get()
+    → electronClient.storeGet<AppSettings>('appSettings')
+      → window.electronAPI.storeGet('appSettings')
+        → IPC invoke('store-get', 'appSettings')
+          → store.handler.ts: store.get('appSettings')
+            → electron-store JSON read
 ```
 
-### Queue Full: User adds 4th download (maxConcurrent=3)
+### Target Flow (Settings Read)
 
 ```
-User clicks download (wallpaper W)   [active: A, B, C]
-  │
-  ├─ useDownload.addTask({...}) -> store: W.state='waiting'
-  │
-  ├─ useDownload.startDownload(W.id)
-  │    └─ downloadService.startDownload(W.id, ...)
-  │         └─ queue.enqueue(W.id) -> 'queued'
-  │              └─ store: W.state='waiting' (stays waiting)
-  │
-  ├─ (C completes)
-  │    └─ queue.release(C.id)
-  │         └─ dequeue() -> W.id
-  │              └─ downloadService.executeDownload(W.id, ...)
-  │                   └─ store: W.state='downloading'
-  │
-  └─ (Active: A, B, W)
+useSettings() → settingsService.getSettings()
+  → settingsRepository.get()                    [UNCHANGED]
+    → electronClient.storeGet<AppSettings>('appSettings')  [UNCHANGED]
+      → window.electronAPI.storeGet('appSettings')  [UNCHANGED]
+        → IPC invoke('store-get', 'appSettings')  [UNCHANGED channel name]
+          → store.handler.ts: getDatabase().prepare(...).get('appSettings')
+            → SQLite SELECT query (node:sqlite, synchronous)
 ```
 
-### Retry Flow: Download Fails, Retry Succeeds
+### Migration Startup Flow
 
 ```
-Progress: state='failed', errorCategory='network'
-  │
-  ├─ useDownload.handleProgress()
-  │    └─ downloadService.onTaskFailed(id, 'network')
-  │         ├─ retry.shouldRetry(id, 'network') -> true (attempt 0 of 3)
-  │         ├─ Slot is HELD (activeCount unchanged)
-  │         ├─ retry.schedule(id)
-  │         │    └─ delay = min(2000 * 2^0, 30000) = 2000ms
-  │         │    └─ await setTimeout(2000)
-  │         │         └─ downloadService.resumeDownload(id, pending)
-  │         │              └─ electronClient.resumeDownloadTask(...)
-  │         │                   └─ IPC -> handler -> Range request
-  │         │
-  │         ├─ Progress: state='downloading' (resumed from offset)
-  │         ├─ Progress: state='completed'
-  │         │    └─ downloadService.onTaskCompleted(id)
-  │         │         ├─ retry.reset(id)
-  │         │         └─ queue.release(id) -> start next waiting
-  │         └─ store.completeDownload(id, filePath)
+app.whenReady()
+  → registerLocalFileProtocol()
+  → getDatabase()                   (lazy init on first call)
+    → new DatabaseSync(...)         (creates wallhaven-data.db)
+    → initializeSchema()            (CREATE TABLE IF NOT EXISTS for all tables)
+  → migrateFromElectronStore()
+    → Guard: '_migrated_from_store' key exists? → Skip
+    → Read all 4 electron-store keys
+    → SQLite INSERT within transaction
+    → Mark migration complete
+  → createWindow() (splash)
+  → createWindow() (main)
+  → registerAllHandlers()
+    → store.handler.ts now calls getDatabase() instead of store
 ```
 
-### Retry Flow: Max Retries Exceeded
+### Main Process Direct Read (Current vs Target)
 
+**Current:**
 ```
-Progress: state='failed', attempt=3 (of 3 max)
-  │
-  ├─ retry.shouldRetry(id, 'network') -> false
-  │
-  ├─ downloadService.onTaskFailed(id, 'network')
-  │    ├─ retry.reset(id)
-  │    ├─ queue.release(id) -> start next waiting
-  │    └─ store: task.state='failed' (permanent)
-  │
-  └─ useDownload.showError('下载失败，已重试3次')
+download-queue.ts: store.get('appSettings')
+  → electron-store JSON synchronous read
 ```
 
-### Retry Cancellation: User Cancels During Backoff
-
+**Target:**
 ```
-User clicks cancel on retrying task
-  │
-  ├─ useDownload.cancelDownload(id)
-  │    └─ downloadService.cancelDownload(id)
-  │         ├─ retry.cancel(id)     // clears timer
-  │         ├─ queue.cancel(id)     // releases slot
-  │         └─ electronClient.cancelDownloadTask(id)  // cleanup temp files
-  │
-  └─ store: remove task from downloadingList
+download-queue.ts: getDatabase().prepare('SELECT value FROM settings WHERE key = ?').get('appSettings')
+  → SQLite synchronous query
+  → JSON.parse(row.value)
+  → No IPC involved — both are main-process modules
 ```
 
 ---
 
-## Architectural Patterns
+## Build Order
 
-### Pattern 1: Service-Level Coordination with Event Feedback
+### Phase 1: Database Foundation
 
-The queue and retry logic live in the service layer because:
-1. The service already owns the download lifecycle (start/pause/cancel/resume)
-2. The service already has progress callback subscriptions
-3. The composable already delegates to the service
-4. If the renderer is destroyed (app quit), the main process retains temp files for next launch
+**Files:**
+- NEW: `electron/main/database.ts` — getDatabase(), withTransaction(), schema init
+- NEW: `electron/main/sqlite.d.ts` — TypeScript type declarations
+- NEW: `electron/main/migrate.ts` — One-time migration script
+- MODIFY: `electron/main/index.ts` — Add database init + migration call
+- MODIFY: `electron/main/ipc/handlers/store.handler.ts` — Replace store.get/set with SQLite
+- MODIFY: `electron/main/ipc/handlers/download-queue.ts` — Replace store.get with SQLite
+- MODIFY: `electron/main/ipc/handlers/download.handler.ts` — Replace store.get with SQLite
 
+**Why foundation first:** Everything depends on the database existing and the migration running before handlers process requests.
+
+**Key insight:** This phase includes BOTH the database module AND the handler updates because the app won't start correctly if handlers still call `store.get()` after the database is initialized. These changes are atomic — the app goes from fully electron-store to fully SQLite in one phase, with the migration as the bridge.
+
+### Phase 2: Cleanup
+
+**Files:**
+- REMOVE: `electron/main/store.ts`
+- REMOVE: `registerStoreHandlers` from handler index
+- MODIFY: `package.json` — Remove `electron-store` dependency
+- REMOVE: `src/utils/store.ts` (already dead code)
+- REMOVE: Legacy `save-settings`/`load-settings` channels from `settings.handler.ts` (dead code)
+- REMOVE: Old preload store methods if no longer referenced
+- REMOVE: Old electronClient store methods if no longer referenced
+
+**Why cleanup last:** Only after the app is verified working with SQLite can the old electron-store code be safely removed.
+
+---
+
+## Rollback Strategy
+
+### If migration fails or there are issues:
+
+1. The migration script is idempotent — re-running is safe
+2. The electron-store file (`wallhaven-data.json`) is NOT deleted — it remains as a backup
+3. To roll back completely:
+   - Delete `wallhaven-data.db` from `userData`
+   - Revert code changes (git revert)
+   - Restart — app reads from electron-store as before
+
+### If a specific domain has issues:
+
+1. Delete the SQLite file
+2. Fix the issue
+3. Restart — migration re-runs from electron-store
+
+---
+
+## IPC Strategy
+
+### Channel Preservation
+
+The key architectural decision is to **keep the 4 generic IPC channels** (`store-get`, `store-set`, `store-delete`, `store-clear`) instead of introducing domain-specific channels. The reasons:
+
+1. **Zero renderer-side changes** — Repositories, electronClient, and preload code remain untouched
+2. **Backward compatibility** — Existing IPC calls continue to work without any renderer updates
+3. **Reduced migration scope** — Only the handler implementation changes, not the IPC protocol
+4. **Minimal testing burden** — The renderer side doesn't need re-testing
+
+The handler implementation switches from `store.get(key)` to `db.prepare('SELECT value FROM settings WHERE key = ?').get(key)`, keeping the same request/response contract.
+
+---
+
+## Schema Design
+
+```sql
+-- Settings (key-value pairs, JSON values)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Search params (singleton row)
+CREATE TABLE IF NOT EXISTS search_params (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  value TEXT
+);
+
+-- Download history (max 50 items, newest first)
+CREATE TABLE IF NOT EXISTS download_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  data TEXT NOT NULL,          -- JSON blob of FinishedDownloadItem
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Collections
+CREATE TABLE IF NOT EXISTS collections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Favorites (junction table with wallpaper data snapshot)
+CREATE TABLE IF NOT EXISTS favorites (
+  collection_id TEXT NOT NULL,
+  wallpaper_id TEXT NOT NULL,
+  wallpaper_data TEXT NOT NULL,  -- JSON blob of WallpaperItem
+  added_at TEXT NOT NULL,
+  PRIMARY KEY (collection_id, wallpaper_id),
+  FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_favorites_wallpaper ON favorites(wallpaper_id);
+CREATE INDEX IF NOT EXISTS idx_download_history_created ON download_history(created_at DESC);
 ```
-Composable -> Service (orchestrates queue + retry + IPC) -> Handler (executes downloads)
+
+### Schema Rationale
+
+| Table | Design Choice | Why |
+|-------|--------------|-----|
+| `settings` | Key-value rows | Simple, matches current electron-store pattern. JSON values for the AppSettings blob. |
+| `search_params` | Singleton row with CHECK(id=1) | Only one set of search params exists. Single row eliminates ambiguity. |
+| `download_history` | Auto-increment PK, JSON data column | Download items have many fields (id, url, filename, path, resolution, size, time, etc.). A JSON column avoids a 10+ column table for a capped list of 50 items. Index on created_at for DESC sorting. |
+| `collections` | UUID primary key | Matches current `crypto.randomUUID()` pattern. `is_default` and `sort_order` as columns for querying. |
+| `favorites` | Composite PK on (collection_id, wallpaper_id) | Natural key — a wallpaper appears in a collection at most once. FK with CASCADE ensures collection delete removes all its favorites. `wallpaper_data` JSON column stores the API response snapshot for offline display. |
+
+---
+
+## Patterns to Follow
+
+### Pattern 1: Backward-Compatible IPC Channel Modification
+
+**What:** Keep the exact same IPC channel names and `IpcResponse<T>` return format. Only change the handler implementation to use SQLite instead of electron-store.
+
+**When to use:** When the renderer-side code (repositories, client, preload) is working well and doesn't need re-architecture. This minimizes migration scope and testing burden.
+
+**Why this pattern:**
+- Repositories, services, composables, and views require zero changes
+- The `electronClient.storeGet<T>(key)` pattern remains identical
+- Preload context bridge methods remain identical
+- Testing focuses only on the main process handler logic
+
+```typescript
+// BEFORE (store.handler.ts):
+ipcMain.handle('store-get', (_event, key: string) => {
+  const value = store.get(key)
+  return { success: true, value }
+})
+
+// AFTER (store.handler.ts):
+ipcMain.handle('store-get', (_event, key: string) => {
+  const row = getDatabase()
+    .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+    .get(key)
+  const value = row ? JSON.parse(row.value) : null
+  return { success: true, value }
+})
 ```
 
-### Pattern 2: Slot-Holding During Retry
+### Pattern 2: Lazy Singleton with Module-Level Init
 
-When a download fails and will retry, the queue slot is **not released**. This prevents:
-- New tasks starting while a retry is pending
-- Retry connection being delayed by other tasks
-- Starvation (retries always get priority over new tasks because they hold their slot)
+**What:** The database connection is initialized on first access via `getDatabase()`, not at module import time. This avoids startup ordering issues and allows test code to control the database lifecycle.
 
+**When to use:** When the database module is imported by files that may be loaded during testing, building, or development (e.g., Vite/electron-vite might import the main process module during build).
+
+```typescript
+let db: DatabaseSync
+
+export function getDatabase(): DatabaseSync {
+  if (!db) {
+    db = new DatabaseSync(...)
+    initializeSchema()
+  }
+  return db
+}
+
+// NOT this (eager init):
+export const db = new DatabaseSync(...)  // Breaks if app.getPath('userData') not ready
 ```
-Active slots = [A, B, C]  (maxConcurrent=3)
-  C fails, retry scheduled in 2s
-Active slots = [A, B, C]  (C still holds slot, waiting=[D, E])
-  2s later: C resumes downloading
-Active slots = [A, B, C]  (still 3 active + 2 waiting)
-  C completes → slot released → D dequeued
-Active slots = [A, B, D]
+
+### Pattern 3: Manual Transaction Wrapper
+
+**What:** Since `node:sqlite` lacks `better-sqlite3`'s built-in `transaction()` helper, write a simple wrapper using raw SQL.
+
+```typescript
+export function withTransaction<T>(fn: () => T): T {
+  const d = getDatabase()
+  try {
+    d.exec('BEGIN')
+    const result = fn()
+    d.exec('COMMIT')
+    return result
+  } catch (error) {
+    d.exec('ROLLBACK')
+    throw error
+  }
+}
 ```
-
-### Pattern 3: Error Categorization for Retry Eligibility
-
-Not all errors should trigger retry. The handler categorizes errors so the renderer decides:
-
-| Category | HTTP / Error | Retry? | Rationale |
-|----------|-------------|--------|-----------|
-| `network` | ECONNRESET, ETIMEDOUT, ECONNREFUSED | Yes | Transient, likely temporary |
-| `server` | 500, 502, 503 | Yes | Server overload, may recover |
-| `rate_limit` | 429 | Yes | After longer delay |
-| `permanent` | 404, 403, 401, file system error | No | Will never succeed |
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### 1. Queue in the Main Process Handler
+### 1. Adding a Third-Party SQLite Library
 
-**What:** Adding queue/semaphore logic to `download.handler.ts` to control concurrency at the handler level.
+**What people do:** `npm install better-sqlite3` or `npm install @photostructure/sqlite` when `node:sqlite` is already available.
 
-**Why wrong:**
-- Handler becomes stateful (currently it only tracks active downloads for pause/cancel)
-- Queue status requires new IPC channels to communicate to renderer
-- Breaks the pattern where handler is a thin execution layer
-- Retry state management would require additional IPC round-trips
+**Why wrong:** Electron 41 ships Node.js 24.14+ which includes `node:sqlite` at Stability 1.1 with no experimental flag. Adding a third-party library means:
+- Native module compilation + rebuild step
+- `asarUnpack` configuration for packaging
+- Tracking compatibility matrix with Electron version upgrades
+- CI build failures from native module compilation
+- `@types/better-sqlite3` being 5 major versions behind (v7 types for v12 library)
 
-**Instead:** Queue lives in the service layer; handler remains stateless (execute a single download, report progress).
+**Do this instead:** Use `node:sqlite` with a ~30-line custom type declaration and a 5-line `withTransaction()` helper.
 
-### 2. Promise-Queue Library (`p-queue`, `es-toolkit Semaphore`)
+### 2. Changing IPC Channel Names
 
-**What:** Wrapping download initiation with `p-queue.add(() => startDownload(...))`.
+**What people do:** Take the opportunity to "clean up" IPC channel names from generic (`store-get`) to domain-specific (`settings-get`, `favorites-get-data`, etc.).
 
-**Why wrong:**
-- Generic promise queues run functions and return promises, but our queue needs to:
-  - Track `DownloadItem.state` synchronously (waiting vs downloading)
-  - Hold slots during retry countdown (not actively running a function)
-  - Support cancellation mid-waitlist (remove from queue)
-  - Report queue position to UI
-- Wrapping around IPC calls loses the state visibility the composable needs
+**Why wrong:** This doubles the migration scope — you're changing the IPC protocol AND the storage backend simultaneously. Every repository, the electronClient, the preload, and potentially services need updates. Testing must verify the entire renderer-to-main IPC chain, not just the storage layer.
 
-**Instead:** Custom queue with explicit `enqueue`/`release` methods that the service calls directly.
+**Do this instead:** Keep the 4 generic channels. The storage backend change is invisible to the renderer. If channel naming needs cleanup, do it as a separate milestone after the storage migration is verified.
 
-### 3. Retry Wrapper Around IPC (`p-retry`)
+### 3. Generic Key-Value API on Top of SQLite
 
-**What:** `pRetry(() => electronClient.startDownloadTask(...))`.
+**What people do:** Create a generic `get(key)` / `set(key, value)` wrapper that stores everything in a single `kvstore` table, replicating electron-store's API exactly.
 
-**Why wrong:**
-- The IPC call returns immediately (the download runs async in the main process and reports progress via events)
-- Retry needs to happen when the progress event says `state: 'failed'`, not when the IPC promise rejects
-- Need to retry with `resumeDownload` (Range headers), not `startDownload` from scratch
+**Why wrong:** This loses all the benefits of SQLite — no relational queries, no foreign keys, no indexes, no partial updates. You get the worst of both worlds: SQLite's setup overhead with electron-store's JSON-blob limitations.
 
-**Instead:** Event-driven retry: listen for failure events, schedule backoff, then call `resumeDownload`.
+**Do this instead:** Design the schema relationally from the start. Favorites and collections get proper tables with FK constraints. Download history gets indexed timestamps. Only settings and search params use key-value patterns (because they're genuinely simple).
 
-### 4. Wrapping Active Downloads Map in Handler with Semaphore
+### 4. Dual-Write During Migration
 
-**What:** Using a semaphore inside `download.handler.ts` to limit concurrent downloads at the main process level.
+**What people do:** Write to both electron-store AND SQLite during the migration period to ensure no data loss.
 
-**Why wrong:** The handler already has `activeDownloads: Map<string, ActiveDownload>`. Adding a semaphore here means the renderer sends a download request, the handler rejects it (or queues it), and the renderer needs another IPC call to check if it was queued. This doubles the IPC load and moves queue state management across the process boundary.
+**Why wrong:** Dual-write doubles the persistence code paths, creates consistency issues (what if one write succeeds and the other fails?), and makes the code harder to reason about.
 
-**Instead:** The renderer service layer decides which downloads to submit based on its local queue state. The handler always executes what it receives.
+**Do this instead:** One-way migration (electron-store → SQLite) with the electron-store file retained as a backup. After migration is verified, remove the old code.
+
+### 5. Async IPC for Main-Process Database Reads
+
+**What people do:** Make `download-queue.ts` or `download.handler.ts` call IPC channels to read settings from the renderer process, adding an unnecessary round-trip.
+
+**Why wrong:** These modules already run in the main process. Adding IPC would create a circular flow (main process → renderer → main process) and break synchronous execution in the queue processor. `node:sqlite` is synchronous — it can be called directly.
+
+**Do this instead:** Call `getDatabase().prepare(...).get(...)` directly in the main process module. No IPC needed.
 
 ---
 
-## Integration Points with Existing Layers
-
-| Layer | Change | Type |
-|-------|--------|------|
-| **View** | (none) | Views continue to use composable interface unchanged |
-| **Composable** | `useDownload` receives queue status + retry info; handles `retrying` state | MODIFY |
-| **Service** | New `DownloadQueue` + `RetryScheduler` instances; modified start/fail flow | MODIFY + ADD |
-| **Repository** | No changes needed | UNCHANGED |
-| **Client** | No changes needed | UNCHANGED |
-| **Handler** | Add `errorCategory` to failed progress; minimal change | MINIMAL MODIFY |
-| **Store** | Add `retrying` state to DownloadItem state union | MODIFY |
-| **Types** | Add errorCategory, retrying state, queue status, retry config | MODIFY |
+## Integration Points
 
 ### New Internal Dependencies
 
 ```
-download.queue.ts       (standalone, no dependencies on other layers)
-retry.scheduler.ts      (standalone, no dependencies on other layers)
-download.service.ts     imports DownloadQueue + RetryScheduler
-useDownload.ts          calls service.onTaskCompleted / onTaskFailed
-download.handler.ts     adds errorCategory to progress message
+database.ts             (standalone, depends on node:sqlite only)
+migrate.ts              (depends on: database.ts, store.ts)
+sqlite.d.ts             (type declarations, no runtime dependency)
+store.handler.ts        (depends on: database.ts) [MODIFIED]
+download.handler.ts     (depends on: database.ts) [MODIFIED]
+download-queue.ts       (depends on: database.ts) [MODIFIED]
 ```
 
----
+### Layer Changes Summary
 
-## Suggested Build Order
-
-### Phase 1: DownloadQueue
-
-**Files:** `src/services/download/download.queue.ts`
-
-**Why first:**
-- Standalone component with no dependencies on other new code
-- Queue must exist before retry logic can hold slots
-- Enables parallel work on retry scheduler
-
-**Verification:**
-- Unit test: enqueue 5 tasks with maxConcurrent=3, verify only 3 are active
-- Unit test: release completes one, verify next queued task starts
-- Unit test: cancel a queued task, verify it never starts
-- Unit test: dynamic concurrency increase fills new slots
-- Unit test: cancel a task not in queue is no-op
-
-### Phase 2: Wire Queue into Service
-
-**Files:** `src/services/download.service.ts` (modified), `src/composables/download/useDownload.ts` (modified)
-
-**Why second:**
-- Replaces current immediate-start behavior
-- Compotable starts using queue state
-- The `maxConcurrentDownloads` setting actually works
-
-**Verification:**
-- Set maxConcurrent=1, add 3 downloads, verify they run sequentially
-- Set maxConcurrent=5, add 10, verify 5 run at a time
-- Change maxConcurrent from 3 to 1 while 3 active, verify no new tasks start
-
-### Phase 3: RetryScheduler
-
-**Files:** `src/services/download/retry.scheduler.ts`
-
-**Why third:**
-- Depends on queue concept (slot-holding) but not on the queue class itself
-- Can be tested in isolation
-
-**Verification:**
-- Unit test: schedule retry, verify delay is calculated correctly (2s, 4s, 8s, ...)
-- Unit test: cancel mid-delay, verify retry callback is NOT called
-- Unit test: reset clears retry count
-- Unit test: max retries exceeded, shouldRetry returns false
-
-### Phase 4: Wire Retry into Download Flow
-
-**Files:** `src/services/download.service.ts` (modified), `electron/main/ipc/handlers/download.handler.ts` (modified), `src/shared/types/ipc.ts` (modified), `src/types/index.ts` (modified)
-
-**Why fourth:**
-- Depends on both queue and retry scheduler existing
-- Error categorization in handler is straightforward
-- Type changes are mechanical
-
-**Verification:**
-- Simulate network error during download, verify retry fires after delay
-- Simulate 3 consecutive failures, verify task is permanently failed
-- Simulate 404, verify no retry (errorCategory=permanent)
-- Cancel during retry countdown, verify cleanup
-
-### Phase 5: Settings Propagation
-
-**Files:** `src/composables/settings/useSettings.ts` (modified)
-
-**Why last:**
-- Depends on queue existing to accept `setConcurrency`
-- Mechanical change: watch maxConcurrentDownloads, call `downloadService.setQueueConcurrency(n)`
-
-**Verification:**
-- Change maxConcurrent from 3 to 5 in settings, verify more tasks run
-- Change from 5 to 1 while 3 active, verify no crash
+| Layer | Change | Type |
+|-------|--------|------|
+| **View** | None | UNCHANGED |
+| **Composable** | None | UNCHANGED |
+| **Service** | None | UNCHANGED |
+| **Repository** | None (IPC channel names unchanged) | UNCHANGED |
+| **Client** | None (storeGet/storeSet signatures unchanged) | UNCHANGED |
+| **Preload** | None (storeGet/storeSet bridge methods unchanged) | UNCHANGED |
+| **Handler (store)** | Implementation switches from `store.get()` to `SQLite` | MODIFIED |
+| **Handler (settings)** | Legacy `settings.json` handlers removed (dead code) | REMOVED |
+| **Main process (store.ts)** | Removed after migration verified | REMOVED |
+| **Main process (database.ts)** | NEW singleton, replaces store.ts | ADD |
+| **Main process (migrate.ts)** | NEW one-time migration script | ADD |
+| **Main process (sqlite.d.ts)** | NEW type declarations for node:sqlite | ADD |
+| **Main process (download-queue.ts)** | Replace `store.get()` with `getDatabase()` | MINIMAL MODIFY |
+| **Main process (download.handler.ts)** | Replace `store.get()` with `getDatabase()` | MINIMAL MODIFY |
+| **Package.json** | Remove `electron-store` dependency | MODIFY |
 
 ---
 
-## Scaling Considerations
+## Scalability Considerations
 
-| Concern | At 10 active | At 50 active | At 200 active |
-|---------|-------------|-------------|--------------|
-| Queue lookup | FIFO array, O(1) dequeue | FIFO array, O(N) cancel | Needs Set+Queue for O(1) cancel |
-| Retry timers | 3-5 timers | 10-15 timers | Timer pressure possible |
-| Store reactivity | Pinia handles fine | Pinia handles fine | Consider virtual list |
-| Main process connections | 3-5 axios streams | 5-10 streams | OS socket limits (~100/process) |
-
-The queue uses a simple array-based FIFO. If the cancel operation becomes a bottleneck (removing arbitrary elements from an array), switch to a `Set` for O(1) lookup + `Array` for ordering, or use a doubly-linked list.
-
----
-
-## Error Handling Strategy
-
-| Scenario | Behavior |
-|----------|----------|
-| Network error during download | Categorized as `network`, retry with backoff |
-| Download fails all retries | Task marked `failed`, user notified, temp file preserved |
-| User cancels during retry countdown | Timer cleared, temp file deleted, slot released |
-| Queue is full, user clicks download | Task added to `waiting` queue, store state shows `waiting` |
-| Settings change while tasks queued | Queue dynamic concurrency takes effect immediately |
-| App quit while tasks are running | Main process active downloads lost, temp files remain, next launch scans and restores pending downloads |
-
----
-
-## Summary
-
-The architecture adds two new components (`DownloadQueue`, `RetryScheduler`) to the existing service layer, modifies the download service and composable to use them, and makes minimal changes to the main process handler (error categorization only). The queue controls concurrency by mediating which tasks reach the IPC layer; the retry scheduler manages per-task backoff timing while holding queue slots to prevent starvation.
-
-**Build order:** Queue -> Service wiring -> Retry scheduler -> Retry wiring -> Settings propagation.
+| Concern | Expected (this app) | Approach |
+|---------|---------------------|----------|
+| Database size | <50MB | SQLite handles GB without issue. |
+| Concurrent readers | 1-5 (single user desktop app) | node:sqlite supports concurrent reads via shared cache. No concern for single-process Electron. |
+| Concurrent writers | 1 (single user, single process) | Single process, serialized writes. No concern. |
+| Migration time | <1 second for expected data volumes | Synchronous in main thread during splash. |
+| Future schema changes | Minimal (2-3 migrations over app lifetime) | Custom version tracking via `_migration_from_store` marker. Can evolve to versioned `_migrations` table if needed. |
+| Query complexity | Simple CRUD, favorites+collections join | Raw SQL with prepared statements is sufficient. |
 
 ---
 
 ## Sources
 
-- [es-toolkit Semaphore](https://es-toolkit.dev/reference/promise/Semaphore.html) -- Reference for semaphore pattern
-- [p-queue](https://app.unpkg.com/p-queue@9.0.0/files/dist/index.d.ts) -- Reference for queue API design
-- [p-retry](https://raw.githubusercontent.com/sindresorhus/p-retry/main/readme.md) -- Reference for retry/backoff pattern
-- [exponential-backoff (coveo)](https://www.npmjs.com/package/@hcengineering/retry) -- Reference for backoff formula with jitter
-- [electron-dl-manager](https://www.npmjs.com/package/electron-dl-manager) -- Existing Electron download manager pattern (known concurrent download issue)
+- [Electron 41.0.0 Release Announcement](https://az.electronjs.org/blog/electron-41-0) — Node.js v24.14.0 confirmed with `node:sqlite`
+- [Node.js 24 `node:sqlite` Documentation](https://nodejs.org/download/nightly/v24.0.0-nightly20250503f552c86fec/docs/api/sqlite.html) — Official API reference
+- Current codebase analysis: `electron/main/store.ts`, `electron/main/ipc/handlers/store.handler.ts`, 4 repository files, `download-queue.ts`, `download.handler.ts`, `electron.client.ts`, `preload/index.ts`, `settings.handler.ts`, `src/utils/store.ts`
+- SQLite documentation: WAL mode, `PRAGMA foreign_keys`, `ON DELETE CASCADE`, prepared statements
+- [TypeScript 6.0 Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6.0/) — Confirms TS 6.0 does not add Node built-in module types
+- Previous architecture documents (v4.0 milestone)
 
 ---
-
-*Architecture research for: v4.0 concurrent download + retry backoff*
-*Researched: 2026-05-01*
+*Architecture research for: v5.0 electron-store to SQLite migration*
+*Researched: 2026-05-03*

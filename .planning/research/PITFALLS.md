@@ -1,572 +1,1006 @@
-# Pitfalls Research: Concurrent Download + Retry Backoff
+# Pitfalls Research: electron-store to SQLite Migration
 
-**Domain:** Electron wallpaper downloader — adding concurrent download control and automatic retry with exponential backoff to an existing sequential download system
-**Researched:** 2026-05-01
-**Confidence:** HIGH (based on codebase analysis + well-known distributed systems and concurrency patterns)
+**Domain:** Electron desktop wallpaper browser — migrating persistent storage from JSON-file (electron-store) to SQLite (node:sqlite)
+**Researched:** 2026-05-03
+**Confidence:** HIGH (based on codebase analysis + established SQLite migration patterns + node:sqlite official docs + real-world Electron + SQLite post-mortems)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Semaphore Implemented Only in Renderer (Window-Scoped Illusion)
+Mistakes that cause data loss or require rewrites.
 
-**What goes wrong:**
-The concurrency limit appears to work during testing but fails when the user has multiple windows open, or when the main process receives concurrent IPC calls faster than the renderer can throttle. Downloads exceed the configured `maxConcurrentDownloads` limit, causing excessive network connections and file handle contention.
+### Pitfall 1: Non-Idempotent Migration (Data Duplication on Restart)
 
-**Why it happens:**
-The existing architecture has download initiated from the renderer (Vue composable) but the actual HTTP download happens in the main process. If the concurrency semaphore is implemented only in `useDownload` composable (renderer-side), it has no effect on:
+**What goes wrong:** The migration script runs on every app startup without checking if it already ran. Each restart doubles the data in SQLite — settings get duplicated rows, download history gets duplicate entries, favorites get duplicate wallpaper records.
 
-1. The main process `activeDownloads` Map — which accepts any incoming IPC call
-2. Windows that share the same main process but have separate composable instances
-3. Programmatic calls from the main process itself (e.g., retry logic that re-invokes `start-download-task`)
+**Why it happens:** The migration script is written as "read from electron-store, write to SQLite" without an idempotency guard. The developer tests once (works fine), then each subsequent restart adds duplicate data.
 
-The `useDownload` composable is instantiated per-component. Each `DownloadWallpaper.vue`, `OnlineWallpaper.vue`, and `FavoritesPage.vue` has its own composable instance. A per-instance semaphore is not a system-wide semaphore.
+**Consequences:** Download history shows duplicates. Collections have duplicate entries. Total data corruption requiring manual SQLite file deletion.
 
-**How to avoid:**
-Make the concurrency semaphore authoritative in the main process, not the renderer. The main process should:
-
-1. Read `maxConcurrentDownloads` setting (already in `electron-store`)
-2. Track the count of currently active downloads that are actually streaming data
-3. Queue incoming `start-download-task` requests when at capacity
-4. Dequeue and process the next task when a download completes, fails, or pauses
-
-The renderer sends "enqueue" commands, not "start immediately" commands. The main process decides when to actually execute.
-
-**Warning signs:**
-- QA test: Open 3 app windows, start 2 downloads in each with `maxConcurrentDownloads = 3`. If more than 3 downloads run simultaneously, the semaphore is renderer-only and broken
-- Code review: Semaphore logic lives in `useDownload.ts` instead of `download.handler.ts`
-- No `activeDownloadCount` tracking in the main process handler
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (must be in main process from the start; retrofitting later is a rewrite)
-
----
-
-### Pitfall 2: Retry Retriggers on Transient Errors After Permanent Failure
-
-**What goes wrong:**
-A download fails with a 404 (Not Found) or 403 (Forbidden) — a permanent, non-retriable error. The retry logic retries anyway, wasting bandwidth, filling logs, and delaying other downloads. After all retries are exhausted, it still shows "retrying..." to the user instead of a clear permanent failure.
-
-**Why it happens:**
-Developers implement retry as "catch any error, apply backoff, retry" without distinguishing between:
-
-- **Transient errors** — network timeout, DNS resolution failure, ECONNRESET, 429 Too Many Requests, 503 Service Unavailable — worth retrying
-- **Permanent errors** — 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 413 Payload Too Large — retrying will always fail
-
-Without error classification, every error gets the same retry treatment.
-
-**How to avoid:**
-Implement explicit error classification before the retry decision:
+**Prevention:** Guard the migration with TWO checks:
+1. Check if SQLite already has migration record (e.g., `SELECT 1 FROM settings WHERE key = '_migrated_from_store'`)
+2. Record migration marker in the settings table and check before running
 
 ```typescript
-// Transient — worth retrying
-const TRANSIENT_ERRORS = new Set([
-  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND',
-  'ERR_NETWORK', 'ERR_CONNECTION_RESET', 'ERR_CONNECTION_REFUSED',
-])
+// Correct — idempotent
+function migrateFromElectronStore(): boolean {
+  const db = getDatabase()
 
-const HTTP_TRANSIENT_CODES = new Set([408, 429, 500, 502, 503, 504])
+  // Guard: skip if already migrated
+  const row = db.prepare('SELECT 1 FROM settings WHERE key = ?').get('_migrated_from_store')
+  if (row) return false
 
-function isRetriable(error: unknown): boolean {
-  const axiosError = error as any
-  // Network-level transient errors
-  if (axiosError.code && TRANSIENT_ERRORS.has(axiosError.code)) return true
-  // HTTP-level transient errors
-  if (axiosError.response?.status && HTTP_TRANSIENT_CODES.has(axiosError.response.status)) return true
-  // Everything else is permanent
-  return false
+  // Guard: nothing to migrate from electron-store?
+  const appSettings = store.get('appSettings')
+  if (appSettings === undefined) return false // Fresh install — nothing to migrate
+
+  // Run migration inside transaction
+  withTransaction(() => {
+    // ... migrate data ...
+    db.prepare("INSERT INTO settings (key, value) VALUES ('_migrated_from_store', '1')").run()
+  })
+
+  return true
 }
 ```
 
-Do NOT retry on: 400, 401, 403, 404, 413, 415, or client-side abort (user-initiated pause/cancel).
+**Detection:** Run the app twice. Check if settings, download history, or favorites have been duplicated on the second launch.
 
-**Warning signs:**
-- Retry logic uses a single `catch` block without error classification
-- User reports "I keep getting retried on a deleted wallpaper" (404 loop)
-- Unit test: no test cases for different HTTP status codes in retry path
-
-**Phase to address:**
-Phase 2 — Retry with Backoff (must include error classification as a core part of the feature, not an afterthought)
+**Phase to address:** Phase 1 — Database Foundation (the migration script is created in this phase)
 
 ---
 
-### Pitfall 3: Retry and User Pause/Cancel Race — Reanimated Zombie Downloads
+### Pitfall 2: Migration Fails Mid-Transaction, Leaving Partial Data
 
-**What goes wrong:**
-User clicks "Cancel" on a download that is currently in its retry backoff waiting period. The cancel IPC arrives, sets state to cancelled, and removes the task. But the retry timer was already scheduled (`setTimeout`), so the retry callback fires, re-invokes `start-download-task`, and a cancelled download comes back to life — a "zombie download."
+**What goes wrong:** The migration reads data from electron-store and starts writing to SQLite. Halfway through (e.g., after settings but before favorites), the migration crashes or throws. SQLite now has partial data — settings migrated but favorites lost. On restart, the migration check sees settings exist and skips, leaving favorites permanently missing.
 
-Similarly, user clicks "Pause" during backoff wait; the pause sets state to paused, but the retry fires, overwrites paused state back to downloading.
+**Why it happens:** Without a transaction wrapper, each INSERT commits independently. A crash between INSERT groups commits some data and loses the rest. The idempotency check on restart sees "has migration marker" and skips, never retrying the favorites migration.
 
-**Why it happens:**
-Retry timers (setTimeout) and IPC cancellation are asynchronous and uncoordinated. The timer closure captures the task ID but does not check the current task state before executing.
+**Consequences:** Permanent data loss for domains that were written after the crash point.
 
-```typescript
-// Dangerous pattern:
-setTimeout(() => {
-  // This fires regardless of whether user cancelled during the wait
-  startDownload(taskId) // Might resurrect a cancelled download!
-}, backoffDelay)
-```
-
-**How to avoid:**
-Every retry attempt MUST check the current task state before executing:
+**Prevention:** Wrap ALL migration INSERTs in a single SQLite transaction using `withTransaction()`. If any INSERT fails, the entire migration is rolled back. The next startup sees no migration marker and retries from scratch.
 
 ```typescript
-async function retryDownload(taskId: string): Promise<void> {
-  // Check if task still exists and is still in 'failed' state
-  const task = findTask(taskId)
-  if (!task || task.state !== 'failed') {
-    // User cancelled or paused during backoff — do nothing
-    console.log('[Retry] Skipping — task no longer in failed state:', taskId, 'current state:', task?.state)
-    return
+// Correct — all-or-nothing transaction using node:sqlite
+withTransaction(() => {
+  // Settings
+  for (const [key, value] of Object.entries(settings)) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(value))
   }
-
-  // Only then attempt the retry
-  await startDownload(taskId)
-}
-```
-
-Additionally, use an abort-friendly retry mechanism:
-
-```typescript
-// Store retry controllers so cancel/pause can abort waiting retries
-const retryTimers = new Map<string, { timer: ReturnType<typeof setTimeout>, cancelled: boolean }>()
-
-function scheduleRetry(taskId: string, delay: number): void {
-  // Cancel any existing retry timer for this task
-  cancelRetryTimer(taskId)
-
-  const retryEntry = { timer: null as any, cancelled: false }
-
-  retryEntry.timer = setTimeout(() => {
-    if (retryEntry.cancelled) return // Abort check
-    retryTimers.delete(taskId)
-    attemptRetry(taskId)
-  }, delay)
-
-  retryTimers.set(taskId, retryEntry)
-}
-
-function cancelRetryTimer(taskId: string): void {
-  const existing = retryTimers.get(taskId)
-  if (existing) {
-    existing.cancelled = true
-    clearTimeout(existing.timer)
-    retryTimers.delete(taskId)
+  // Download history
+  for (const item of history) {
+    db.prepare('INSERT INTO download_history (data) VALUES (?)').run(JSON.stringify(item))
   }
-}
-```
-
-Call `cancelRetryTimer(taskId)` in both pause and cancel flows.
-
-**Warning signs:**
-- QA test: Start download, wait for failure, immediately cancel during backoff wait. If download restarts, zombie bug is present
-- No `retryTimers` Map or equivalent cancellation mechanism
-- Retry logic directly calls `startDownload` without checking task state
-
-**Phase to address:**
-Phase 2 — Retry with Backoff (zombie prevention must be built into the retry infra, not patched later)
-
----
-
-### Pitfall 4: Unbounded Queue Growth with Storm Retry
-
-**What goes wrong:**
-Multiple downloads fail simultaneously (e.g., network outage). Each enters retry backoff with its own independent timer. When the network comes back, all timers fire in close succession, causing a "retry storm" — N simultaneous download attempts that overwhelm both the network connection and the concurrency semaphore.
-
-Worse: if each retry also fails (still transient), the retries compound. With exponential backoff capped at e.g. 30 seconds, after 5 minutes of outage, when network recovers, there could be dozens of downloads all retrying within seconds of each other.
-
-**Why it happens:**
-Each download's retry timer is independent. There is no system-wide coordination. The concurrency semaphore only throttles initial starts, not retry re-starts.
-
-**How to avoid:**
-1. **Retry MUST go through the same queue as initial downloads.** Do not bypass the concurrency semaphore. A retry is just "re-enqueue this task."
-2. **Add jitter to backoff timing.** Exponential backoff without jitter causes synchronized retries (the "thundering herd" problem):
-   ```typescript
-   // Full jitter strategy — most resilient for multiple concurrent retries
-   function calculateBackoff(attempt: number, baseMs: number, maxMs: number): number {
-     const exponential = Math.min(baseMs * Math.pow(2, attempt), maxMs)
-     // Full jitter: random(0, exponential)
-     return Math.random() * exponential
-   }
-   ```
-3. **Cap the total number of retry-in-flight tasks.** If too many tasks are in retry-waiting state, throttle new task creation at the addTask level.
-
-**Warning signs:**
-- Retry timer fires and directly calls `start-download-task` IPC without going through the queue
-- All backoff timers use the same base delay with no jitter
-- After a network recovery, logs show a burst of download starts within a 1-second window
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (retry must respect the queue) + Phase 2 — Retry with Backoff (jitter and capping)
-
----
-
-### Pitfall 5: Progress Persistence Corruption Under Concurrent Writes
-
-**What goes wrong:**
-With N downloads running concurrently, each download writes its own `.download.json` state file (throttled to every 5 seconds or 10MB). Two or more downloads write their state files simultaneously. On the filesystem level, these atomic writes target different files, so there is no collision in the traditional sense.
-
-However, the *completed* race is more subtle: when a download completes, it deletes its `.download.json` state file via `fs.unlinkSync`. If the main process crashes at the exact moment between the state file deletion and the `activeDownloads.delete(taskId)`, the app restarts and sees the state file still present. Since the download actually completed (the `.download` temp file was renamed to the final file), the state file points to a temp file that no longer exists.
-
-This is an *existing* race in the single-download case too, but concurrency makes it more likely because:
-1. More filesystem operations happening simultaneously
-2. Higher total I/O pressure
-3. More state files to scan on restart
-
-**Why it happens:**
-The completion sequence is not transactional:
-```
-1. fs.renameSync(tempPath, filePath)       // Move temp to final
-2. fs.unlinkSync(statePath)                  // Delete state file
-3. activeDownloads.delete(taskId)            // Remove from memory
-```
-
-If crash happens between step 1 and step 2, the app restarts with a stale state file pointing to a non-existent temp file.
-
-**How to avoid:**
-This is already partially handled — `get-pending-downloads` checks `if (!fs.existsSync(tempPath))` and deletes orphaned state files. Verify this is robustly tested:
-
-1. Make sure the orphan cleanup logic is tested specifically for the completion race case (not just the general cleanup case)
-2. Consider a write-ahead approach: delete the state file *before* renaming the temp file:
-   ```
-   1a. Write completion marker (optional)
-   2a. fs.unlinkSync(statePath)          // Delete state BEFORE rename
-   3a. fs.renameSync(tempPath, filePath)  // Now rename
-   ```
-   This way, if a crash occurs, the state file is gone, and no stale reference exists. The temp file (if rename didn't happen) will be cleaned up by `cleanupOrphanFiles` based on its age.
-
-**Warning signs:**
-- After app crash, user sees "resumable download" entries that have no corresponding `.download` file
-- Restart logs show "state file deleted (temp missing)" warnings
-- QA test: Kill the main process during concurrent downloads, restart, check for orphaned state files
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (during completion flow review, fix the state file ordering)
-
----
-
-### Pitfall 6: `BrowserWindow.getAllWindows()[0]` Hardcode Breaks with Multiple Windows
-
-**What goes wrong:**
-The main process download handler sends progress updates via:
-```typescript
-const windows = BrowserWindow.getAllWindows()
-if (windows.length > 0) {
-  windows[0].webContents.send('download-progress', ...)
-}
-```
-
-This always sends to the first window in the list. If the user has multiple windows open (which is possible in Electron), only the first window receives progress updates. The second window sees stale download progress or no progress at all.
-
-With concurrent downloads, this becomes more problematic because:
-1. The user might open `DownloadWallpaper.vue` in a second window to monitor progress
-2. Progress data for different downloads might arrive interleaved, and only one window gets the updates
-3. If the first window is minimized or on another virtual desktop, the user watching the second window sees no activity
-
-**Why it happens:**
-The original single-window assumption ("we only have one main window"). Electron's `BrowserWindow.getAllWindows()` returns an array; `[0]` assumes the first window is always the right target.
-
-**How to avoid:**
-Use `webContents.send` to all interested windows, or better, use the sender's `BrowserWindow.fromWebContents()` pattern:
-
-```typescript
-// Option A: Broadcast to all windows
-const windows = BrowserWindow.getAllWindows()
-for (const win of windows) {
-  win.webContents.send('download-progress', data)
-}
-
-// Option B: Use sender's window (requires event reference in handler)
-ipcMain.handle('start-download-task', (event, params) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender)
-  // Store sender window for this download
-  // Later, send progress to that specific window
+  // Collections
+  for (const c of collections) {
+    db.prepare('INSERT INTO collections ...').run(...)
+  }
+  // Favorites
+  for (const f of favorites) {
+    db.prepare('INSERT INTO favorites ...').run(...)
+  }
+  // Record migration
+  db.prepare("INSERT INTO settings (key, value) VALUES ('_migrated_from_store', '1')").run()
 })
 ```
 
-Option A is simpler and works well for an app where download state is global (showing the same download list in any window is correct behavior). If download state should be per-window, use Option B.
+**Detection:** Unit test: mock the favorites INSERT to throw, run migration, verify SQLite is empty (no partial data).
 
-**Warning signs:**
-- `windows[0]` pattern exists anywhere in handler code
-- QA test: Open second window, start download in first window, check if progress updates in second window
-- Progress data received only in one specific window
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (fix the progress broadcast as part of refactoring the main process download handler)
+**Phase to address:** Phase 1 — Database Foundation
 
 ---
 
-### Pitfall 7: IPC Serialization Overhead with High-Frequency Progress Updates
+### Pitfall 3: Main Process Still Reads from electron-store After Migration
+
+**What goes wrong:** The migration copies data from electron-store to SQLite. But the main process modules (`download-queue.ts`, `download.handler.ts`) still import `store` and call `store.get('appSettings')`. They never read the migrated data in SQLite. If the migration deleted or overwrote the electron-store file, settings are lost for the main process.
+
+**Why it happens:** The migration only transfers data. It doesn't update import paths. The main process modules directly import `store` from `electron/main/store.ts` and have no awareness of the database.
+
+**Critical specific case in this codebase:** `download-queue.ts` line 94 reads `appSettings` directly via:
+```typescript
+const appSettings = store.get('appSettings') as unknown as { maxConcurrentDownloads?: number } | undefined
+```
+This is a synchronous, direct electron-store read. After migration, the queue will keep reading stale electron-store data unless this import is changed to the SQLite database module. If electron-store is removed (or its file is deleted), this code path will crash or return `undefined`, causing `maxConcurrentDownloads` to silently fall back to the default of 3.
+
+**Consequences:** Download queue uses default `maxConcurrentDownloads = 3` even though user set it to 5. Pending download scanner can't find the download path. User's settings don't apply to downloads.
+
+**Prevention:** Update ALL main-process `store.get()` calls to use `getDatabase()` in the same phase as migration. The `download-queue.ts` and `download.handler.ts` must import `getDatabase` from `../../database` instead of `store` before the migration writes final data.
+
+```typescript
+// In download-queue.ts — BEFORE (reads from electron-store, WRONG after migration)
+import { store } from '../../store'
+const appSettings = store.get('appSettings') as any
+
+// In download-queue.ts — AFTER (reads from SQLite, CORRECT)
+import { getDatabase } from '../../database'
+const row = getDatabase()
+  .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+  .get('appSettings')
+const appSettings = row ? JSON.parse(row.value) : null
+```
+
+**Detection:** Grep for `import.*store.*from.*store` in `electron/main/` directory after migration completion. Every match is a bug.
+
+**Phase to address:** Phase 2 — Main Process Module Cutover (BEFORE Phase 3 IPC changes)
+
+---
+
+### Pitfall 4: IPC Channel Name Conflicts / Dual Registration Race
+
+**What goes wrong:** During the migration period, both the old generic store handlers and the new domain handlers are registered. An old handler accidentally handles a request intended for a new handler (or vice versa), causing incorrect data routing or double registration errors from Electron.
+
+**Why it happens:** The `store.handler.ts` registers `ipcMain.handle('store-get', ...)` while the new `settings.handler.ts` registers `ipcMain.handle('settings-get', ...)`. These are different channel names, so no conflict exists — UNLESS the preload script still maps the old channel names AND the repository has already switched to the new channels. The renderer sends to old channels but only new handlers exist, resulting in timeout errors.
+
+**How this project avoids it:** The recommended architecture keeps the SAME 4 generic IPC channel names (`store-get`, `store-set`, `store-delete`, `store-clear`). Only the handler implementation changes (from `store.get()` to SQLite). This eliminates the dual-registration problem entirely — there is never a period where both old and new handlers exist for the same channel.
+
+**Consequences (if channels were renamed):** Settings changes silently fail. The user adjusts `maxConcurrentDownloads` but it's never persisted because the IPC channel handler is missing or misrouted.
+
+**Prevention:** Follow the backward-compatible IPC strategy:
+1. Keep existing channel names unchanged
+2. Modify handler implementation to use SQLite (same signature, new backend)
+3. Repositories, electronClient, preload require zero changes
+4. Only remove dead handler code after all migration phases are verified
+
+**Detection:** After each change, verify: "Can the renderer read/write settings through the same channels as before?"
+
+**Phase to address:** Phase 3 — Store Handler Migration (generic IPC)
+
+---
+
+### Pitfall 5: Misunderstanding That node:sqlite Needs Build Integration (It Does Not)
+
+**What goes wrong:** A developer familiar with `better-sqlite3` assumes `node:sqlite` also needs `electron-rebuild`, `asarUnpack`, and `externalizeDepsPlugin()` configuration. They add unnecessary build pipeline changes, or worse, assume it won't work and add a third-party SQLite library.
+
+**Why it happens:** The dominant Node.js SQLite library (`better-sqlite3`) is a native module that requires compilation for Electron's ABI. This pattern is well-known from many Electron + SQLite tutorials and StackOverflow answers. Developers unfamiliar with Node.js 24's built-in `node:sqlite` module apply the same mental model.
+
+**Consequences:** Wasted effort adding build configuration that isn't needed. Risk of breaking the existing build pipeline by adding `asarUnpack` entries or external dependencies. Worse: choosing `better-sqlite3` instead of `node:sqlite`, introducing all the native module management burden.
+
+**Prevention:** Understand that `node:sqlite` is a built-in Node.js module (like `fs`, `path`, `crypto`). It requires:
+- **No** `npm install` — it ships with the runtime
+- **No** `electron-rebuild` — no native `.node` binary
+- **No** `asarUnpack` — nothing to unpack from ASAR
+- **No** `electron.vite.config.ts` changes — built-in modules are handled natively
+
+```typescript
+// All that's needed for the database module:
+import { DatabaseSync } from 'node:sqlite'  // Built-in, zero dependencies
+```
+
+**Detection:** Build pipeline changes that explicitly reference a SQLite library (asarUnpack entries, rollupOptions.external additions, postinstall rebuild commands) are a red flag. The project should have NO build changes for SQLite.
+
+**Phase to address:** Phase 1 — Database Foundation (confirm zero build config changes at the start)
+
+---
+
+### Pitfall 6: Favorites Data Loss from FK Constraint Violations
+
+**What goes wrong:** During migration, favorite items reference `collection_id` values that don't exist in the `collections` table. SQLite's foreign key enforcement rejects the INSERT with a FK violation. The migration throws, the transaction rolls back, and NO data is migrated. The app starts with an empty SQLite database.
+
+**Why it happens:** The electron-store `FavoritesData` blob may contain favorites referencing collection IDs that don't exist in the `collections` array. This can happen from earlier bugs, manual data manipulation, or partial writes.
+
+**Consequences:** Complete migration failure. All data appears lost (though electron-store backup still exists).
+
+**Prevention:** Two approaches:
+1. **Strict:** Filter orphaned favorites before migration
+2. **Lenient:** Disable FK enforcement during migration (remove `enableForeignKeyConstraints: true` from DatabaseSync constructor) — then clean up orphans
+
+**Recommendation: Strict approach (filter orphans):**
+```typescript
+const validCollectionIds = new Set(favoritesData.collections.map(c => c.id))
+const validFavorites = favoritesData.favorites.filter(f =>
+  validCollectionIds.has(f.collectionId)
+)
+if (validFavorites.length !== favoritesData.favorites.length) {
+  console.warn(`Filtered ${favoritesData.favorites.length - validFavorites.length} orphaned favorites during migration`)
+}
+// Then insert validFavorites
+```
+
+**Detection:** Enable SQLite logging during migration development. If `FOREIGN KEY constraint failed` errors appear, check for orphaned favorites.
+
+**Phase to address:** Phase 1 — Database Foundation (migration script must handle orphaned data)
+
+---
+
+### Pitfall 7: The Redundant settings.json Path Is Forgotten
+
+**What goes wrong:** After migration, the team updates `settings.repository.ts` and `store.handler.ts` to use SQLite. They remove `electron-store`. But the legacy `settings.handler.ts` (which reads/writes `{userData}/settings.json`) is still registered. Some code path still calls `save-settings` IPC channel, writing settings to the JSON file instead of SQLite. Settings changes seem to work but are invisible to the SQLite-backed settings reader.
+
+**Why it happens:** The `settings.handler.ts` registers IPC handlers for `save-settings` and `load-settings` channels. These channels exist in the preload as `window.electronAPI.saveSettings()` and `window.electronAPI.loadSettings()`. The `electronClient` also has `saveSettings()` and `loadSettings()` methods. If ANY code path calls these instead of the new SQLite-based methods, settings are persisted to the wrong location.
+
+After migration, there would be THREE settings sources: the SQLite `settings` table, the `settings.json` file, and (if not yet removed) electron-store's `wallhaven-data.json`. Divergence between these three sources is inevitable if more than one path is active.
+
+**Consequences:** Settings appear lost (or reverting to defaults). The user saves settings but they don't persist across restarts. Debugging is confusing because the two paths silently coexist.
+
+**Prevention:** 
+1. Audit all callers of `electronClient.saveSettings()` and `electronClient.loadSettings()` — they are dead code (no current callers found)
+2. In the migration, either:
+   a. **Redirect** the old channels to SQLite (point `save-settings` handler at SQLite read/write)
+   b. **Remove** the old handlers entirely (after confirming no callers)
+3. Add a startup log message confirming the settings path: `console.log('[Settings] Using SQLite backend:', databasePath)`
+
+**Phase to address:** Phase 2 — Cleanup (but mark with a TODO during Phase 1 to not forget)
+
+---
+
+### Pitfall 8: Migration Performance On Large Datasets
+
+**What goes wrong:** The migration script runs synchronously on the main thread during app startup. If the user has thousands of favorites with large `wallpaperData` JSON blobs, the migration could take 5-10 seconds, freezing the splash screen and delaying app startup noticeably.
+
+**Why it happens:** Each favorite INSERT processes the `wallpaperData` JSON (can be 1-5KB per item). 5000 favorites x 2KB = ~10MB of data. SQLite transactions batch writes efficiently, but the JSON serialization and JS loop overhead still takes time.
+
+**Consequences:** Slow startup on first launch after migration. User sees a frozen splash screen with no progress indication.
+
+**Prevention:** 
+1. Use a single transaction (not individual commits) — SQLite batches all writes
+2. Use prepared statements outside the loop — less JS overhead per iteration
+3. Estimate worst-case migration time: 5000 items at 1000 inserts/second = 5 seconds. Acceptable for a one-time migration.
+4. If time becomes a concern, show a migration progress indicator on the splash screen
+
+**Phase to address:** Phase 1 — Database Foundation
+
+---
+
+### Pitfall 9: Missing electron-store Defaults After Migration
+
+**What goes wrong:** The electron-store `Store` constructor has `defaults` for some keys:
+```typescript
+const store = new Store({
+  defaults: {
+    wallpaperQueryParams: null,
+    appSettings: null,
+    downloadFinishedList: [],
+  },
+})
+```
+After migration, `store.get('downloadFinishedList')` returns `[]` (the default), not `undefined`. If the migration script checks `if (!data)` instead of `if (data !== undefined && data !== null)`, it interprets the empty array as "no data to migrate" and skips download history — even if the DOWNLOAD_FINISHED_LIST key was never explicitly set.
+
+**Consequences:** Download history is silently not migrated. User loses their download history even though it existed in electron-store. The empty array default short-circuits the migration guard.
+
+**Prevention:** Check for the presence of data with explicit null/undefined checks, not truthiness:
+
+```typescript
+// WRONG — empty array is falsy, interpreted as "no data"
+if (!store.get('downloadFinishedList')) { /* skip */ }
+
+// CORRECT — explicitly check for null/undefined
+const history = store.get('downloadFinishedList')
+if (history === undefined || history === null) { /* skip */ }
+```
+
+Or use the `store.get(key)` without second parameter and check:
+```typescript
+const history = store.get('downloadFinishedList')
+if (Array.isArray(history) && history.length > 0) { /* migrate */ }
+```
+
+**Detection:** Test with a fresh install that has default settings but user data stored. Verify all 4 domains are migrated.
+
+**Phase to address:** Phase 1 — Database Foundation
+
+---
+
+### Pitfall 10: Foreign Key Constraint in Favorites Prevents Collection Deletion
+
+**What goes wrong:** The `favorites` table has `FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE`. When a collection is deleted via the repository's `deleteCollection()` method, the CASCADE should delete associated favorites. But if FK enforcement was not enabled, the CASCADE doesn't fire and orphaned favorites remain.
+
+**Why it happens:** `PRAGMA foreign_keys` must be set on EVERY database connection. It's not a persistent setting. In `node:sqlite`, this is set via the `enableForeignKeyConstraints: true` constructor option. If this option is omitted, FK constraints are silently ignored — no error, no cascade.
+
+**Consequences:** Deleting a collection leaves orphaned favorites in the database. These orphans are invisible to the user (no UI to show them) but accumulate over time. The `getData` method still returns them because it reads all `favorites` rows.
+
+**Prevention:** Ensure FK enforcement is enabled in the database constructor:
+```typescript
+const db = new DatabaseSync(join(app.getPath('userData'), 'wallhaven-data.db'), {
+  enableForeignKeyConstraints: true,  // CRITICAL — must be set on every connection
+  timeout: 5000
+})
+```
+
+Also set it explicitly as a runtime PRAGMA for redundancy (works in both `node:sqlite` and SQLite CLI):
+```typescript
+db.exec('PRAGMA foreign_keys = ON')
+```
+
+**Detection:** Write a unit test: create a collection with 3 favorites, delete the collection, verify `SELECT * FROM favorites WHERE collection_id = ?` returns empty.
+
+**Phase to address:** Phase 1 — Database Foundation
+
+---
+
+### Pitfall M1 (Added): WAL Mode Checkpoint Starvation — Unbounded WAL File Growth
 
 **What goes wrong:**
-With N concurrent downloads each sending progress events every 100ms, the IPC channel `download-progress` carries N x 10 events per second. Each event includes a full `DownloadProgressData` object that Electron serializes/deserializes via structured clone. At N=10 (max concurrency), this is 100 IPC events/second for progress alone.
+The SQLite database uses WAL (Write-Ahead Logging) mode for performance. In a long-running Electron app (which may stay open for days), the WAL file (`-wal`) grows without bound. Frequent favorites mutations and download persistence keep the WAL growing, but checkpoints only trigger when the WAL reaches 1000 pages (default threshold). If the app is force-closed, the last checkpoint is lost, and recovery on next open must replay the WAL — slowing startup.
 
-Symptoms:
-- UI thread jank from too many rapid reactive updates
-- CPU usage from constant structured clone serialization
-- Download progress bars appear to "stutter" because Vue's reactivity batching is overwhelmed
+Additionally, there is a known Electron bug: if a folder named `"databases"` exists inside `app.getPath('userData')`, Electron may delete it when creating a BrowserWindow (Electron Issue #45396). This can delete the SQLite database and its WAL/SHM files.
 
 **Why it happens:**
-The existing progress interval (100ms) was reasonable for a single download. With N concurrent downloads, the total IPC frequency scales linearly. The renderer's `handleProgress` callback fires for every event, each triggering Vue reactive updates, DOM mutations, and potentially store writes.
+- WAL mode is set (default in SQLite 3.51+, which ships with Node.js 24) but no periodic checkpointing is configured
+- `PRAGMA wal_checkpoint()` is never called during app runtime — only on `db.close()`
+- If the app crashes or is force-killed, the checkpoint on close never runs
+- The `-wal` file accumulates changes until it reaches the auto-checkpoint threshold
 
-**How to avoid:**
+**Prevention:**
 
-1. **Batch progress updates on the renderer side** — collect incoming events over a short window (e.g., 200-300ms) and apply them in a single reactive batch:
+1. **Periodic checkpointing in a background interval:**
    ```typescript
-   private progressBuffer = new Map<string, DownloadProgressData>()
-   private batchTimer: ReturnType<typeof setInterval> | null = null
-
-   handleProgress(data: DownloadProgressData): void {
-     this.progressBuffer.set(data.taskId, data)
-     if (!this.batchTimer) {
-       this.batchTimer = setInterval(() => this.flushProgress(), 200)
+   const checkpointInterval = setInterval(() => {
+     try {
+       // TRUNCATE shrinks the WAL file; PASSIVE is non-blocking
+       getDatabase().exec('PRAGMA wal_checkpoint(TRUNCATE)')
+     } catch {
+       // If TRUNCATE fails (active readers), try PASSIVE
+       getDatabase().exec('PRAGMA wal_checkpoint(PASSIVE)')
      }
-   }
-
-   private flushProgress(): void {
-     // Apply all buffered updates in one batch
-     for (const [taskId, data] of this.progressBuffer) {
-       store.updateProgress(data)
-     }
-     this.progressBuffer.clear()
-   }
+   }, 5 * 60 * 1000).unref() // .unref() so it doesn't keep process alive
    ```
 
-2. **Reduce main-process sending frequency** — instead of N independent 100ms intervals, have a single tick that sends aggregated updates:
+2. **Checkpoint on app close:**
    ```typescript
-   // Single timer in main process instead of per-download data handlers
+   app.on('before-quit', () => {
+     clearInterval(checkpointInterval)
+     closeDatabase() // node:sqlite close() implicitly checkpoints
+   })
+   ```
+
+3. **Monitor WAL file size and log a warning if it exceeds a threshold:**
+   ```typescript
    setInterval(() => {
-     const batch = Array.from(activeDownloads.entries()).map(([id, dl]) => ({
-       taskId: id,
-       offset: dl.downloadedSize,
-       speed: dl.currentSpeed,
-       // ... computed from the active download state
-     }))
-     win.webContents.send('download-progress-batch', batch)
-   }, 200)
+     try {
+       const walPath = join(app.getPath('userData'), 'wallhaven-data.db-wal')
+       const stat = fs.statSync(walPath)
+       if (stat.size > 10 * 1024 * 1024) { // 10MB
+         console.warn(`[SQLite] WAL file is ${stat.size} bytes — checkpointing`)
+         getDatabase().exec('PRAGMA wal_checkpoint(TRUNCATE)')
+       }
+     } catch { /* WAL file doesn't exist yet */ }
+   }, 60000).unref()
    ```
 
-3. **Throttle UI updates** in the download store — debounce rapid progress changes when the view is not visible (document.hidden check).
+4. **Do NOT name your database folder "databases":**
+   Store the SQLite file at `path.join(app.getPath('userData'), 'wallhaven-data.db')` — not in a subfolder called "databases".
 
-**Warning signs:**
-- Profile shows high CPU in structuredClone during download activity
-- Vue devtools show excessive reactive updates on `downloadingList`
-- Download progress bars visually jitter or jump instead of smooth
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (reduce IPC frequency as part of refactoring the progress reporting)
-
----
-
-### Pitfall 8: Race Between `restorePendingDownloads` and New Download Starts
-
-**What goes wrong:**
-On app startup, `restorePendingDownloads` restores paused downloads from the previous session and iterates them. If the user immediately starts a new download (or multiple new downloads), the restored tasks and new tasks compete for the concurrency semaphore. Since restoration happens in a synchronous loop (`for (const pending of pendingDownloads)`), all restored tasks get added to the `downloadingList` as 'paused' — but the code does not automatically resume them.
-
-The problem is more subtle: the restoration pushes items into the reactive array. If the user's `maxConcurrentDownloads` is 3, and there are 5 restored paused tasks, the queue now has up to 5 + new tasks. The concurrency semaphore must handle this scenario — should all 5 show as 'paused' (waiting manual resume), or should it auto-resume up to the limit?
-
-**Why it happens:**
-The current restoration code restores tasks as 'paused' and expects the user to manually resume them. With concurrency, this becomes confusing:
-1. Restored tasks take slots in the download list
-2. New tasks added by the user wait in 'waiting' state
-3. The user must manually resume each paused task to free the concurrency slot
-4. No clear mapping between paused count and concurrency limit
-
-**How to avoid:**
-Define a clear policy for restored tasks:
-
-- **Conservative approach:** Auto-enqueue up to `maxConcurrentDownloads` restored tasks as 'downloading', leave the rest as 'paused' in the queue. This matches user expectation ("I had downloads running, they should resume").
-- **Simpler approach:** All restored tasks start as 'waiting' in the queue, not 'paused'. The concurrency semaphore picks them up automatically as slots open.
-
-Either way, the restoration must be queued through the same semaphore, not added directly to the download list:
-
-```typescript
-async restorePendingDownloads(): Promise<void> {
-  const result = await downloadService.getPendingDownloads()
-  if (!result.success || !result.data) return
-
-  for (const pending of result.data) {
-    // Add to queue as 'waiting' — semaphore decides when to resume
-    addTask({ ... }) // This adds as waiting
-    // Do NOT call resumeDownload here — let the queue handle it
-  }
-}
-```
-
-**Warning signs:**
-- Startup code calls `resumeDownload()` directly on restored tasks (bypasses queue)
-- Restored tasks show as 'paused' but auto-resume unpredictably
-- User confusion: "I had 5 downloads running, now only 2 resumed"
-
-**Phase to address:**
-Phase 1 — Queue Infrastructure (restoration must respect the queue)
-
----
-
-### Pitfall 9: Error Feedback Explosion — N Concurrent Downloads Fail Simultaneously
-
-**What goes wrong:**
-When a network outage occurs, all N active downloads fail within milliseconds of each other. Each failure triggers:
-1. An IPC `download-progress` message with `state: 'failed'`
-2. The renderer's `handleProgress` shows a `showError()` toast/alert per failure
-3. Each failed download starts its retry backoff timer
-
-The user sees N simultaneous error toasts (e.g., 10 error messages at once), which is overwhelming and dismisses the usefulness of error notifications. The screen gets spammed.
-
-**Why it happens:**
-The current `handleProgress` in `useDownload.ts` unconditionally calls `showError()` for every failure:
-```typescript
-if (error) {
-  // ...
-  showError(`下载失败: ${error}`)
-  return
-}
-```
-
-With concurrent downloads, N simultaneous failures mean N simultaneous error messages.
-
-**How to avoid:**
-1. **Debounce/aggregate error notifications:** Instead of showing an alert per failure, collect failures within a short window and show a single summary:
+5. **Use `BEGIN IMMEDIATE` for all multi-statement write transactions:**
    ```typescript
-   private failureBuffer: string[] = []
-   private failureTimer: ReturnType<typeof setTimeout> | null = null
+   // Custom immediate transaction pattern for node:sqlite
+   function withImmediateTransaction<T>(fn: () => T): T {
+     const db = getDatabase()
+     try {
+       db.exec('BEGIN IMMEDIATE')
+       const result = fn()
+       db.exec('COMMIT')
+       return result
+     } catch (error) {
+       db.exec('ROLLBACK')
+       throw error
+     }
+   }
+   ```
+   This prevents "database is locked" errors that can occur when a `BEGIN DEFERRED` transaction tries to upgrade to a write mid-flight while another read is active.
 
-   private reportFailure(taskId: string, error: string): void {
-     this.failureBuffer.push(`${taskId}: ${error}`)
-     if (!this.failureTimer) {
-       this.failureTimer = setTimeout(() => {
-         const count = this.failureBuffer.length
-         if (count === 1) {
-           showError(this.failureBuffer[0])
-         } else {
-           showError(`${count} 个下载任务失败`)
-         }
-         this.failureBuffer = []
-         this.failureTimer = null
-       }, 500) // 500ms aggregation window
+**Detection:**
+- WAL file (`wallhaven-data.db-wal`) grows to 50MB+ — checkpoint starvation is happening
+- Database file exists in a folder called "databases" inside `userData` — at risk of Electron deletion bug
+- No `PRAGMA wal_checkpoint()` call anywhere in the database lifecycle
+- `before-quit` handler closes the app but does not checkpoint or close the database
+
+**Phase to address:** Phase 1 — Database Initialization and Infrastructure
+
+---
+
+### Pitfall M2 (Added): Type Safety Gap — SQLite Rows Are Untyped at Runtime
+
+**What goes wrong:**
+SQLite queries return plain JavaScript objects (`Record<string, unknown>`). A repository method might do `db.prepare('SELECT * FROM settings').get()` and return an untyped result. The caller accesses `result.maxConcurrentDownloads` as if it were a number, but at runtime the column might be `null`, `undefined`, or stored as a JSON string. TypeScript doesn't catch this because the type is `unknown` or cast with `as`.
+
+After migration, the `FavoritesData` type (defined at `src/types/favorite.ts` with nested `collections[]` and `favorites[]`) is spread across relational tables. Each repository method must reconstruct objects from rows. Every `JSON.parse()` call and row-to-domain mapping is a potential silent failure point.
+
+**Why it happens:**
+`node:sqlite`'s type definitions (custom, since `@types/node` doesn't include them) return `Record<string, unknown>` for row data. Developers either cast with `as T` or skip typing entirely. The `as T` pattern bypasses runtime validation — if the actual SQLite schema differs from the TypeScript type, the mismatch is silent until runtime.
+
+**Prevention:**
+
+1. **Define per-table row types** separate from domain types:
+   ```typescript
+   // SQL row representation (what SQLite actually returns)
+   interface SettingsRow {
+     key: string
+     value: string   // JSON serialized
+   }
+
+   interface CollectionRow {
+     id: string
+     name: string
+     is_default: number  // 0/1 INTEGER
+     sort_order: number
+     created_at: string
+     updated_at: string
+   }
+
+   interface FavoriteRow {
+     wallpaper_id: string
+     collection_id: string
+     added_at: string
+     wallpaper_data: string | null  // JSON serialized snapshot
+   }
+   ```
+
+2. **Create explicit mapping functions — never cast directly:**
+   ```typescript
+   // BAD: No runtime validation
+   const row = db.prepare('SELECT * FROM settings WHERE key = ?').get('appSettings') as SettingsRow
+
+   // GOOD: Explicit mapping with validation
+   function mapSettingsRow(row: unknown): AppSettings | null {
+     if (!row || typeof row !== 'object') return null
+     const r = row as Record<string, unknown>
+     if (typeof r.value !== 'string') return null
+     try {
+       return JSON.parse(r.value) as AppSettings
+     } catch {
+       return null
      }
    }
    ```
 
-2. **Silence error notifications when retry is active.** If a download will be automatically retried, don't show an error toast. Only surface the error after all retries are exhausted.
-3. **Show a status badge** (e.g., "3 downloads failed, retrying...") instead of individual toasts.
+3. **Maintain the existing `IpcResponse<T>` pattern** for repository methods. The codebase already uses this for all data access — SQLite repository methods should return `IpcResponse<T>` as well:
+   ```typescript
+   getSettings(): IpcResponse<AppSettings> {
+     try {
+       const row = db.prepare(
+         'SELECT value FROM settings WHERE key = ?'
+       ).get('appSettings') as SettingsRow | undefined
+       if (!row) return { success: true, data: null }
+       const parsed = JSON.parse(row.value)
+       return { success: true, data: parsed as AppSettings }
+     } catch (err) {
+       return { success: false, error: { code: 'SQLITE_ERROR', message: String(err) } }
+     }
+   }
+   ```
 
-**Warning signs:**
-- QA test: Simulate network disconnect with 5 active downloads. If 5 toasts appear, this pitfall is active
-- Retry logic shows error toast on every retry attempt (user sees "failed" -> "retrying" -> "failed" repeatedly)
-- No batch/aggregate error display in the download UI
+**Detection:**
+- Repository methods use `as SomeType` casts on raw `db.prepare().get()` results without validation
+- No per-table row type definitions — queries cast directly to domain types
+- `JSON.parse()` results are used directly without try/catch
 
-**Phase to address:**
-Phase 2 — Retry with Backoff (suppress errors during retry) + Phase 3 — UX Polish (aggregated error display)
-
----
-
-## Technical Debt Patterns
-
-### Debt 1: `useDownload` Duplicates Store Logic
-
-`useDownload.composable.ts` duplicates `addTask` logic that already exists in the download store. The composable's `startDownload` and `resumeDownload` directly mutate store state (e.g., `task.state = 'downloading'`) rather than going through store methods like `store.resumeDownload()`. This bypasses the store's state management and makes future changes like adding a concurrency-aware queue harder.
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Direct mutation of `task.state` in composable | Quick implementation, fewer abstraction layers | Queue/semaphore logic must be duplicated in both composable and store; state transitions are scattered | Never — always use store methods for state mutations |
-| `startDownload` and `resumeDownload` have overlapping but slightly different logic | Handles both new and resume cases | Adding a unified queue means refactoring both methods; likely to miss one path | Temporary only, with a TODO to consolidate |
-
-### Debt 2: Error Message Format Inconsistency
-
-The main process sends errors as both strings (`{ error: "message" }` in start/download) and objects (`{ error: { code: "RESUME_FAILED", message: "..." } }` in resume). The renderer handles both but inconsistently — `result.error?.message` works for objects but returns `undefined` for plain strings. This is a latent bug that concurrency will expose more frequently.
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| `result.error?.message || result.error` in catch blocks | Quick fix that covers both formats | Masked `undefined` errors; makes error classification (`isRetriable`) harder | Never — standardize error format first |
-
-### Debt 3: Hardcoded 60-Second Timeout
-
-`timeout: 60000` in `download.handler.ts` is hardcoded with no configuration. With concurrent downloads, aggressive timeout behavior is more likely (N connections competing for bandwidth), causing spurious timeouts on slow connections. Each timeout triggers error → retry, wasting a retry attempt.
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Hardcoded 60s timeout | Simple implementation | Users with slow connections see retries for downloads that would succeed given more time | Acceptable for MVP if retry count is high enough to absorb spurious timeouts |
+**Phase to address:** Phase 2 — Data Layer Abstractions (Repository pattern with row mapping)
 
 ---
 
-## Integration Gotchas
+### Pitfall M3 (Added): Favorites Blob Pattern Ported to SQLite — Missed Optimization
 
-### Existing Pause/Resume vs. New Queue
+**What goes wrong:**
+The current `favoritesRepository` follows a read-modify-write pattern:
+```typescript
+async addFavorite(item: FavoriteItem): Promise<IpcResponse<FavoriteItem>> {
+  const result = await this.getData()  // Loads ALL collections + ALL favorites
+  // ... validate and modify in memory ...
+  return this.setData(updatedData)     // Writes ALL collections + ALL favorites
+}
+```
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Pause during concurrent download | Calling `abortController.abort()` directly decrements the active count but does not signal the queue to start the next waiting task | Pause must trigger queue dequeue: abort download → mark state as paused → call `processQueue()` to start next waiting task |
-| Resume from pause (user-initiated) | Calling `resumeDownload()` directly starts the HTTP Range request, bypassing the concurrency semaphore | Resume should enqueue the task as 'waiting' and let the semaphore decide when it starts (respecting `maxConcurrentDownloads`) |
-| Cancel with retry active | `cancelDownload` removes the task from `downloadingList` but the retry timer is still running (zombie) | Cancel MUST call `cancelRetryTimer(taskId)` before removing the task |
-| Concurrent + pause all | User sets concurrency to 1 while 5 downloads are active — all 5 must be paused first, then 1 resumed. Naive implementation would instantly kill 4 connections with AbortController | Lowering concurrency should gracefully pause excess active downloads (complete current chunks, then pause) |
+After migration to SQLite, if the repository layer keeps this same blob-oriented pattern (load everything, modify, write everything), the SQLite migration provides NO performance benefit. Every mutation still loads the entire dataset. Worse, SQLite's transaction overhead is wasted because the pattern recreates electron-store's "whole file rewrite" behavior.
 
-### Retry with Existing Error Handling
+**Why it happens:**
+The existing `favoritesRepository` exposes `getData()` and `setData()` methods that operate on the entire `FavoritesData` object. If the migration simply replaces the underlying storage (electron-store -> SQLite) without redesigning the API surface, every mutation still reads and writes the full dataset.
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Retry triggering error toast | Each retry failure shows a `showError()` toast, filling the UI with noise | Suppress error display during retry attempts; only surface after all retries exhausted |
-| Retry with `RESUME_FILE_NOT_FOUND` | Retrying a download where the temp file was deleted will keep failing with the same error | `RESUME_FILE_NOT_FOUND` is a permanent error — do NOT retry. Add to non-retriable error codes |
-| Retry with `RESUME_INVALID_OFFSET` | Same logic — retry will always fail because offset data is corrupt | Permanent error — do NOT retry |
-| Retry overwriting `paused` state | If user pauses during retry backoff wait, retry timer fires and changes state back to 'downloading' | Always check `task.state === 'failed'` before retrying; pause changes state to 'paused', which blocks retry |
+**Prevention:**
 
-### Settings Change (`maxConcurrentDownloads`) With Active Downloads
+1. **Design the repository API around atomic operations, not blob operations:**
+   ```typescript
+   // BAD — blob-oriented (electron-store pattern ported to SQLite)
+   async addFavorite(item: FavoriteItem): Promise<IpcResponse<FavoriteItem>> {
+     const data = await this.getData()  // Loads all collections + favorites
+     const updatedData = { ...data, favorites: [...data.favorites, item] }
+     return this.setData(updatedData)   // Writes all collections + favorites
+   }
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| User reduces concurrency from 5 to 2 while 5 are active | No action taken; 5 continue running (setting has no effect until next download start) | Gracefully pause the excess (5 - 2 = 3) active downloads to respect the new limit |
-| User increases concurrency from 2 to 8 while queue has waiting downloads | No action taken; waiting downloads stay waiting until next completion | Immediately process the queue up to the new limit (start additional downloads) |
-| Settings save triggers queue re-evaluation | Settings change only persisted but queue never re-evaluated | Settings service should emit a queue-re-evaluation event when `maxConcurrentDownloads` changes |
+   // GOOD — atomic SQL operation
+   async addFavorite(item: FavoriteItem): Promise<IpcResponse<FavoriteItem>> {
+     try {
+       getDatabase().prepare(`
+         INSERT INTO favorites (wallpaper_id, collection_id, added_at, wallpaper_data)
+         VALUES (?, ?, ?, ?)
+       `).run(item.wallpaperId, item.collectionId, item.addedAt, JSON.stringify(item.wallpaperData))
+       return { success: true, data: item }
+     } catch (err: any) {
+       if (err.message?.includes('UNIQUE constraint')) {
+         return { success: false, error: { code: FavoritesErrorCodes.FAVORITE_ALREADY_EXISTS, message: '...' } }
+       }
+       return { success: false, error: { code: FavoritesErrorCodes.STORAGE_ERROR, message: String(err) } }
+     }
+   }
+   ```
+
+2. **Use SQL constraints instead of JS validation:**
+   - `UNIQUE(collection_id, wallpaper_id)` (implied by PRIMARY KEY) replaces the `data.favorites.some(...)` check
+   - `FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE` replaces manual collection existence check
+
+3. **Keep `getFavoritesData()` only for initial page load,** not for mutation operations. Use two targeted queries:
+   ```typescript
+   async getFavoritesData(): Promise<IpcResponse<FavoritesData>> {
+     const collections = getDatabase().prepare('SELECT * FROM collections ORDER BY name').all()
+     const favorites = getDatabase().prepare('SELECT * FROM favorites ORDER BY added_at DESC').all()
+     return { success: true, data: {
+       collections: collections.map(mapCollectionRow),
+       favorites: favorites.map(mapFavoriteRow),
+       version: 2,
+       defaultCollectionId: (collections as CollectionRow[]).find(c => c.is_default)?.id,
+     }}
+   }
+   ```
+
+**Detection:**
+- Repository methods start with "load all data" on every mutation
+- SQL queries use `SELECT *` from favorites without a `WHERE` clause on single-item operations
+- No UNIQUE constraints on the favorites table
+- `isFavorite()` still loads the entire favorites array and uses `.some()` in JS instead of `SELECT 1 FROM favorites WHERE ... LIMIT 1`
+
+**Phase to address:** Phase 2 — Data Layer Abstractions (Repository pattern redesign)
 
 ---
 
-## Performance Traps
+### Pitfall M4 (Added): Startup Blocking — Synchronous DB Init Delays Window Creation
+
+**What goes wrong:**
+`node:sqlite` is synchronous by design. When the app starts, the main process does:
+1. Import modules (which may call `getDatabase()` at top level)
+2. `new DatabaseSync(dbPath)` — opens the file
+3. `initializeSchema()` — runs `CREATE TABLE IF NOT EXISTS`
+4. Check migration status, run migration if needed
+5. Only then: `createWindow()`
+
+Steps 1-4 can take hundreds of milliseconds to seconds, especially if a migration is needed. Users see a delayed window and splash screen, which feels sluggish.
+
+**Why it happens:**
+If `getDatabase()` is called at module import time (top-level of a module), it blocks the entire require chain. Even without migration, opening a database file and running schema initialization takes 10-50ms. With the current splash screen already in use, this delay is noticeable.
+
+**Prevention:**
+
+1. **Lazy-initialize the database — never call `getDatabase()` at module import level:**
+   ```typescript
+   // BAD: Top-level — blocks import
+   export const db = new DatabaseSync(path)
+
+   // GOOD: Lazy — first access triggers initialization
+   let db: DatabaseSync | undefined
+   export function getDatabase(): DatabaseSync {
+     if (!db) {
+       db = new DatabaseSync(getDbPath(), { enableForeignKeyConstraints: true, timeout: 5000 })
+       initializeSchema()
+     }
+     return db
+   }
+   ```
+
+2. **Defer database initialization to after window creation:**
+   ```typescript
+   app.on('ready', () => {
+     // Create splash window immediately
+     const splash = createSplashWindow()
+     splash.show()
+
+     // Initialize database on next tick
+     setImmediate(() => {
+       const db = getDatabase()
+       splash.webContents.send('database-ready')
+       loadMainApp()
+     })
+   })
+   ```
+
+3. **Use the splash screen for migration progress** if migration takes measurable time:
+   ```typescript
+   function migrateWithProgress(db: DatabaseSync, win: BrowserWindow): void {
+     const steps = ['Backing up electron-store', 'Migrating settings', 'Migrating favorites', 'Migrating download history']
+     steps.forEach((msg, i) => {
+       win.webContents.send('migration-progress', { step: i + 1, total: steps.length, message: msg })
+       // ... run migration step ...
+     })
+   }
+   ```
+
+**Detection:**
+- `new DatabaseSync()` and `initializeSchema()` calls at module import level (top-level of a module)
+- `createWindow()` appears after 50+ lines of database initialization and migration logic
+- Importing `database.ts` immediately triggers database creation
+
+**Phase to address:** Phase 1 — Database Foundation (lazy initialization as a hard requirement)
+
+---
+
+### Pitfall M5 (Added): Testing Blind Spot — System Node.js May Not Have `node:sqlite`
+
+**What goes wrong:**
+The project uses Vitest for unit tests (`"test:unit": "vitest"`). Vitest runs on the system's Node.js, not Electron's bundled Node.js. If the system Node.js is older than v24, `import { DatabaseSync } from 'node:sqlite'` will throw `ERR_MODULE_NOT_FOUND` because the built-in module doesn't exist in older Node.js versions.
+
+**This is no longer a native module ABI issue** (as it was with `better-sqlite3`), but a Node.js version availability issue. `node:sqlite` ships as a built-in module starting with Node.js 22 (experimental) and Node.js 24 (Stability 1.1, no flag required).
+
+**Why it happens:**
+The test runner (Vitest) uses the system Node.js installed on the developer's machine (e.g., Node.js 20 or 22). If the system Node.js is below 24, `node:sqlite` is either unavailable (Node 20) or requires the `--experimental-sqlite` flag (Node 22-23). Tests that import `database.ts` at the top level will fail.
+
+**Consequences:** ALL tests in the affected test file fail, even tests that don't directly use the database. Developers can't run unit tests without workarounds.
+
+**Prevention:**
+
+1. **Use lazy initialization** (same fix as M4) — prevents `node:sqlite` loading at import time:
+   ```typescript
+   // database.ts exports getDatabase(), not a module-level database instance
+   // Tests that import database.ts but never call getDatabase() won't trigger node:sqlite loading
+   ```
+
+2. **Use in-memory SQLite for integration tests:**
+   ```typescript
+   function createTestDb(): DatabaseSync {
+     const db = new DatabaseSync(':memory:')
+     db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
+     // ... other tables ...
+     return db
+   }
+   ```
+   Note: `import { DatabaseSync } from 'node:sqlite'` at the top of test files WILL fail under system Node.js < 24. Handle this:
+   ```typescript
+   // Test helper file
+   let DatabaseSync: typeof import('node:sqlite')['DatabaseSync'] | null = null
+   try {
+     ({ DatabaseSync } = require('node:sqlite'))
+   } catch {
+     // Running under system Node.js < 24 — skip DB-dependent tests
+   }
+   ```
+
+3. **Mock the database layer** in unit tests. The existing repository pattern (singleton object exports) makes this natural:
+   ```typescript
+   vi.mock('@/repositories/settings.repository', () => ({
+     settingsRepository: {
+       get: vi.fn().mockResolvedValue({ success: true, data: { maxConcurrentDownloads: 5 } }),
+       set: vi.fn().mockResolvedValue({ success: true }),
+     }
+   }))
+   ```
+
+4. **Ensure system Node.js is v24+** for development:
+   - Add `"node": ">=24"` to `package.json` `engines` field
+   - Document in CONTRIBUTING.md: "This project requires Node.js 24+ for `node:sqlite`"
+   - CI runners should use Node.js 24+
+
+5. **For integration tests that must run under Electron,** use:
+   ```json
+   "scripts": {
+     "test:unit": "vitest --project unit",
+     "test:integration:db": "ELECTRON_RUN_AS_NODE=true npx electron node_modules/vitest/vitest.mjs --project integration"
+   }
+   ```
+
+**Detection:**
+- Running `npm run test:unit` fails with `ERR_MODULE_NOT_FOUND` for `node:sqlite`
+- `import { DatabaseSync } from 'node:sqlite'` appears at the top level of any module that tests import
+- System Node.js version is below 24 (`node -v`)
+- No `"engines"` field enforcing Node.js 24+ in `package.json`
+
+**Phase to address:** Phase 1 — Database Foundation (lazy initialization), Phase 2 — Data Layer (repository mocking)
+
+---
+
+### Pitfall M6 (Added): Schema Evolution Without Versioning — Breaking Changes on Update
+
+**What goes wrong:**
+The SQLite schema is created with `CREATE TABLE IF NOT EXISTS` on every app startup. Later, a new app version adds a column to the `favorites` table. The `IF NOT EXISTS` check passes (table already exists), and the new column is never added. The app crashes at runtime because it tries to insert into a column that doesn't exist.
+
+Without schema versioning, it's impossible to distinguish between:
+- Fresh install (no database exists — create tables from scratch)
+- Existing install on schema v1 (already has data — run migration)
+- Existing install on schema v2 (current — no action needed)
+
+**Why it happens:**
+`CREATE TABLE IF NOT EXISTS` provides no mechanism for `ALTER TABLE`, column additions/removals, constraint changes, or data transforms. It's a bootstrap pattern, not a migration pattern.
+
+**Prevention:**
+
+1. **Create a `schema_versions` table from the very first migration:**
+   ```typescript
+   function ensureSchemaTable(db: DatabaseSync): void {
+     db.exec(`
+       CREATE TABLE IF NOT EXISTS schema_versions (
+         version INTEGER PRIMARY KEY,
+         description TEXT NOT NULL,
+         applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+       )
+     `)
+   }
+   ```
+
+2. **Define migrations as ordered, immutable functions:**
+   ```typescript
+   const MIGRATIONS: Migration[] = [
+     {
+       version: 1,
+       description: 'Import from electron-store',
+       up(db) {
+         db.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`)
+         db.exec(`CREATE TABLE collections (id TEXT PRIMARY KEY, name TEXT, is_default INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT)`)
+         db.exec(`CREATE TABLE favorites (wallpaper_id TEXT NOT NULL, collection_id TEXT NOT NULL, added_at TEXT, wallpaper_data TEXT, PRIMARY KEY (collection_id, wallpaper_id), FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE)`)
+         // ... import data from electron-store ...
+       }
+     },
+     {
+       version: 2,
+       description: 'Add thumbnail_url to favorites',
+       up(db) {
+         db.exec(`ALTER TABLE favorites ADD COLUMN thumbnail_url TEXT`)
+       }
+     },
+   ]
+   ```
+
+3. **Apply migrations sequentially on startup:**
+   ```typescript
+   function runMigrations(db: DatabaseSync): void {
+     ensureSchemaTable(db)
+     const row = db.prepare<{ version: number }>(
+       'SELECT COALESCE(MAX(version), 0) as version FROM schema_versions'
+     ).get()!
+     const currentVersion = row.version
+
+     for (const m of MIGRATIONS) {
+       if (m.version > currentVersion) {
+         withTransaction(() => {
+           m.up(db)
+           db.prepare('INSERT INTO schema_versions (version, description) VALUES (?, ?)')
+             .run(m.version, m.description)
+         })
+       }
+     }
+   }
+   ```
+
+4. **Never modify an existing migration.** Once applied to any user's database, it is immutable. Add new versions for schema changes.
+
+**Detection:**
+- Schema creation uses only `CREATE TABLE IF NOT EXISTS` with no versioning mechanism
+- No `schema_versions` table in the database
+- `ALTER TABLE` statements are executed unconditionally on every startup (will fail on fresh installs)
+- Migration logic is mixed with normal startup code (not separated into versioned scripts)
+
+**Phase to address:** Phase 1 — Database Foundation (schema versioning designed before any migration code)
+
+---
+
+### Pitfall M7 (Added): Dual-Write Inconsistency During Transition Period
+
+**What goes wrong:**
+During the transition period (some features migrated to SQLite, others still on electron-store), the app writes data to TWO storage backends. A code path writes to SQLite but a different code path reads from electron-store. Data is split across two stores, and neither has the complete picture.
+
+The most dangerous case in this codebase: `store.handler.ts` triggers `getQueueInstance()?.processQueue()` when `appSettings` is saved (line 37). If the settings are saved to SQLite but the queue still reads from electron-store, the notification to re-evaluate the queue fires but reads stale settings.
+
+**Why it happens:**
+`download-queue.ts` reads `appSettings` directly from electron-store:
+```typescript
+const appSettings = store.get('appSettings') as unknown as { maxConcurrentDownloads?: number } | undefined
+```
+
+After settings writes are migrated to SQLite, this direct electron-store read returns stale data. The queue uses the old `maxConcurrentDownloads` value until the app is restarted (and the migration runs again).
+
+**Prevention:**
+
+1. **Migrate read paths before write paths:**
+   - Phase A: Make all READS go through SQLite (switch import to `getDatabase()`)
+   - Phase B: Make all WRITES go through SQLite (modify handler implementations)
+   - Phase C: Remove electron-store reads (confirm no code still imports `store`)
+   - Phase D: Remove electron-store dependency entirely
+
+2. **For `download-queue.ts` specifically, change the settings read to go through SQLite:**
+   ```typescript
+   // BEFORE:
+   import { store } from '../../store'
+   const appSettings = store.get('appSettings') as any
+
+   // AFTER:
+   import { getDatabase } from '../../database'
+   const row = getDatabase()
+     .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+     .get('appSettings')
+   const appSettings = row ? JSON.parse(row.value) : undefined
+   ```
+
+3. **Preserve the `processQueue()` trigger** when settings change — include it in the SQLite store handler:
+   ```typescript
+   ipcMain.handle('store-set', (_event, { key, value }) => {
+     getDatabase()
+       .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+       .run(key, JSON.stringify(value))
+     // Preserve the queue re-evaluation notification
+     if (key === 'appSettings') {
+       getQueueInstance()?.processQueue()
+     }
+     return { success: true }
+   })
+   ```
+
+**Detection:**
+- `download-queue.ts` still calls `store.get('appSettings')` after migration
+- `store.handler.ts` still has handlers for `store-get`, `store-set` after SQLite is the primary store
+- Changing `maxConcurrentDownloads` has no effect on active downloads (queue reads stale value)
+- No systematic audit of all `store.get()` and `store.set()` calls was performed
+
+**Phase to address:** Phase 3 — Store Handler Migration (systematic store handler cutover)
+
+---
+
+## Moderate Pitfalls
+
+### Pitfall 11: Preload Type Duplication with IPC Channels
+
+**What goes wrong:** The preload script defines its own `ElectronAPI` interface with manually typed store methods. New domain channels get added to the preload with new method signatures. The old store methods remain. The preload HTML interface grows dual sets of methods, some of which are dead code.
+
+**Prevention:** After Phase 2 cleanup, remove old preload store methods. Keep only the methods for channels that remain active.
+
+**Detection:** The `electron/preload/index.ts` file should have store methods only during Phase 1. After Phase 2, no `storeGet`/`storeSet`/`storeDelete`/`storeClear` entries.
+
+---
+
+### Pitfall 12: IPC Channel Whitelist Not Updated
+
+**What goes wrong:** The preload has a `VALID_INVOKE_CHANNELS` array (or equivalent) that whitelists allowed IPC channels. New domain channels are not added to this whitelist. Calls to the new channels are silently blocked or throw in the preload.
+
+**Prevention:** Add all new domain channel names to the whitelist at the same time as creating the handler. Remove old channel names after Phase 2.
+
+---
+
+### Pitfall 13: JSON.parse / JSON.stringify Round-Trip on Settings Values
+
+**What goes wrong:** Settings values are stored as JSON strings in SQLite (`value TEXT`). Every read does `JSON.parse(row.value)` and every write does `JSON.stringify(value)`. If a value is already a string (e.g., `apiKey: "abc123"`), the round-trip is correct. But if a value is `null`, `JSON.parse("null")` returns `null`, and the code might interpret this as "no setting" rather than "explicitly null".
+
+**Prevention:** Use explicit null handling:
+```typescript
+getSetting(key: string): unknown | null {
+  const row = getDatabase()
+    .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+    .get(key)
+  if (!row) return null  // Key doesn't exist
+  return JSON.parse(row.value)  // Could be null, string, number, object, etc.
+}
+```
+
+---
+
+### Pitfall 14: Forgetting to Handle `defaultCollectionId` in Collections Migration
+
+**What goes wrong:** The `FavoritesData` type has `defaultCollectionId?: string` field. During migration to SQLite, this field is represented by the `is_default` column on the `collections` table. But if the migration script only checks `collection.isDefault` and ignores `favoritesData.defaultCollectionId`, the old collection marked as default might not be marked correctly.
+
+**Prevention:** During migration, set default collection via both markers:
+```typescript
+for (const c of favoritesData.collections) {
+  const isDefault = c.isDefault || c.id === favoritesData.defaultCollectionId
+  insertCollection.run(c.id, c.name, isDefault ? 1 : 0, c.createdAt, c.updatedAt)
+}
+```
+
+---
+
+### Pitfall 15: In-Memory Database for Tests Doesn't Match Production
+
+**What goes wrong:** Unit tests use `new DatabaseSync(':memory:')` for fast, isolated testing. The schema matches. But `PRAGMA foreign_keys` behavior differs slightly — in-memory databases reset pragmas on disconnect differently. Also, the migration from electron-store can't use in-memory DB because it reads from the actual electron-store file.
+
+**Prevention:** Use file-based test databases for integration tests that test migration logic. In-memory databases are fine for testing query behavior in isolation, but the migration script itself must be tested against a file-based database (or a temp file).
+
+---
+
+## Minor Pitfalls
+
+### Pitfall 16: `src/utils/store.ts` Dead Code Left Behind
+
+This file has zero imports in the current codebase but still exists. During cleanup, delete it. It creates confusion if left behind because it has the same name as the store pattern.
+
+### Pitfall 17: Package.json Scripts Not Updated
+
+The `postinstall` script already runs `electron-builder install-app-deps` which handles native rebuilds for `sharp`. With `node:sqlite`, no additional scripts are needed. Verify the postinstall still works correctly after removing `electron-store`.
+
+### Pitfall 18: Migration Logging Too Verbose
+
+The migration script logs each INSERT if not careful. For 5000 download history items and 2000 favorites, that's 7000 console.log lines. Bundle logs: log only summary stats (counts per domain) and any errors.
+
+---
+
+## Performance Traps (SQLite Migration)
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Per-download 100ms progress IPC timer | High IPC message count, UI thread jank with N concurrent downloads | Batch progress updates server-side, send aggregated batch every 200-300ms | At 3+ concurrent downloads on the current 100ms-per-download cadence (30+ msgs/s) |
-| All downloads share one 60s timeout | Spurious timeout failures when bandwidth is shared among N downloads | Make timeout configurable per-download based on file size or use dynamic timeout | When bandwidth < (N x avg_file_size / 60) |
-| `JSON.parse`/`stringify` on every state persist | Write amplification on every progress tick (throttled to 5s/10MB currently, but state file contains full PendingDownload object) | Use binary or append-only state format; batch persists | At 10 concurrent downloads each persisting a 1KB JSON state file every 5 seconds — minor but cumulative on low-end storage (e.g., Raspberry Pi SD card running Electron via ARM) |
-| `downloadingList.find()` O(N) on every progress event | Current code uses `Array.find` to locate the task for each progress update. With concurrent downloads, each progress event scans the entire list | Use a `Map<string, DownloadItem>` for O(1) lookup instead of array search | At 50+ queued items in the download list (mostly finished/paused) |
-| `BrowserWindow.getAllWindows()` on every progress tick | Each progress event iterates all windows and sends to `[0]`. With N downloads at 100ms, this is Nx10 getAllWindows() calls/second | Cache the window reference, or use `webContents.send` without getAllWindows | Not a bottleneck at typical scale but unnecessary work |
+| No index on `favorites.wallpaper_id` | `isFavorite()` queries are O(favorites) full table scan | `CREATE INDEX idx_favorites_wallpaper ON favorites(wallpaper_id)` | When favorites exceed ~1000 items |
+| No index on `favorites.collection_id` | Filtering favorites by collection scans entire table | Covered by composite PK; separate index if querying by collection_id alone | When favorites exceed ~1000 items |
+| WAL checkpoint running during user activity | UI jank from synchronous checkpoint | Run checkpoint during idle (`.unref()` interval, not during user interaction) | When checkpoint runs during typing/scrolling |
+| Frequent favorites writes without batching | Multiple sequential INSERT/UPDATE/DELETE each commit separately | Batch related operations into a single `withTransaction()` | User rapidly adding/removing multiple favorites |
+| No transaction wrapping for bulk import | 1000 individual INSERT statements during migration | Wrap the import loop in a single `withTransaction()` | During migration of large favorites datasets |
 
 ---
 
-## Security Mistakes
+## Integration Gotchas (SQLite Migration)
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| `download-queue.ts` reads `appSettings` from store | After migration, still reads from electron-store | Change to read from SQLite via `getDatabase().prepare(...)` |
+| `store.handler.ts` triggers queue re-evaluation (line 37) | Notification lost when electron-store handler is replaced | Move the `processQueue()` call to the SQLite settings write path |
+| `settings.handler.ts` writes to `settings.json` | Redundant third persistence path | Remove `settings.handler.ts`; settings live only in SQLite |
+| `favorites.repository.ts` currently in renderer | After migration, SQLite is only accessible from main process | Move favorites data access to main process; renderer accesses via IPC |
+| IPC channel `store-get` still registered | Renderer code may still call it | Channel names stay the same — handler implementation changes |
+| Splash screen | May flash before DB migration completes | Use splash for migration progress; send IPC updates during migration |
+
+---
+
+## Security Mistakes (SQLite Migration)
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Retry does not re-validate URL before re-requesting | If download URL contains a signed token (expiring URL), retry after expiry sends a stale token. Server returns 403/401, which triggers permanent error. This is correct behavior (fail fast) but could catch developers off-guard | Document that retry is URL-based and any URL with time-limited auth will fail on retry. This is a known limitation, not a bug |
-| Concurrent downloads writing to same filename | Two concurrent downloads of the same wallpaper (different task IDs) write to different `filename_N.ext` incremental files | Current code already adds incremental counters (`_1`, `_2`) in the start-download handler. Verify this works correctly when both downloads start simultaneously (race on `fs.existsSync` check) |
-| State file path traversal via filename | If the wallpaper filename contains `../` or path separators, the state file path calculation `tempPath + '.json'` could write outside the download directory | Sanitize filenames at the addTask level; reject filenames containing `..`, `/`, `\`, or null bytes |
+| SQL injection via wallpaper filename | Malicious filename with `' OR 1=1 --` in query | Use parameterized queries exclusively — never string interpolation |
+| API key stored in plain text in settings table | Key readable from disk by any process | Use Electron's `safeStorage` API to encrypt before storing. This is an existing concern; migration doesn't change it. |
+| Renderer accesses SQLite directly | Bypasses IPC security; exposes DB to untrusted renderer | SQLite is main-process only; renderer accesses through IPC handlers |
+| Database file in world-readable location | Other apps read the database | `app.getPath('userData')` already has appropriate permissions per platform |
 
 ---
 
-## UX Pitfalls
+## Phase-Specific Warnings
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Batch download with no progress visibility | User adds 10 wallpapers to download — all 10 show "waiting" state with no indication of when they'll start | Show queue position ("#3 of 8 waiting") and estimated wait time based on current speed and concurrency |
-| Retry spinning forever without feedback | Download shows "failed" briefly, then "downloading" again with no indication it's a retry. User doesn't know whether progress is real progress or a retry | Show retry state explicitly: "下载失败，30秒后重试 (2/3)" with a countdown; when retrying, show "重新连接中..." not "downloading" |
-| Concurrency slider feels broken | User sets maxConcurrentDownloads to 5 but sees only 2 active because other 3 are somehow blocked | Show active count / limit clearly: "2/5 下载中" in the header. Immediate visual feedback when slider changes |
-| App restart resumes all paused tasks at once | User had 10 paused downloads and set concurrency to 3. On restart, they expect 3 to resume. But if restoration logic is wrong, all 10 show as paused with none auto-resuming | Auto-resume up to `min(restored_count, maxConcurrentDownloads)` tasks on startup. Clearly label the rest as "pending — awaiting slot" |
-| Network recovery after failure — stale retry indicators | Downloads are retrying with increasing backoff (1s, 2s, 4s...). Network recovers. User has to wait for the current backoff timer to expire (up to cap) before retry fires | Consider a "resume all" button that resets backoff timers and immediately retries all failed downloads. Or detect network recovery (if Electron offers net.online) and trigger immediate retry |
-| Drag slider to 1 while 5 are active | 4 downloads abruptly fail/stop without explanation | Graceful: complete the current chunk for the 4 to-be-paused downloads, then pause them. Show a brief toast: "并发数已调整，已暂停 4 个下载任务" |
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Phase 1: Database Foundation | Migration non-idempotent (P1), partial write (P2), FK violations (P6), defaults (P9), WAL starvation (M1), schema versioning (M6), startup blocking (M4), testing blind spot (M5) | Transactional idempotent migration with lazy init, schema_versions table, periodic WAL checkpointing, Node 24+ enforcement |
+| Phase 2: Main Process Cutover | Main process still reads from electron-store (P3), type safety gap (M2), blob pattern ported (M3) | Replace all `store.get()` imports; use typed row mappers; design atomic SQL operations |
+| Phase 3: Store Handler IPC | Channel name confusion (P4), dual-write (M7), processQueue() missed | Keep same IPC channel names; update handler implementation to SQLite; preserve queue notification |
+| Phase 4: Cleanup | Legacy settings.json path (P7), dead code (P16) | Audit grep for dead imports; redirect or remove old handlers |
+| Build pipeline | Unnecessary node:sqlite build config (P5 — none needed) | NO changes to electron.vite.config.ts, electron-builder.yml, or postinstall |
+| Favorites FK | Orphaned favorites after collection delete (P10) | Ensure `enableForeignKeyConstraints: true` in DatabaseSync constructor |
+| Testing | Vitest can't resolve node:sqlite (M5) | Lazy init; mock repositories; ensure system Node 24+; use `:memory:` SQLite for integration tests |
+
+---
+
+## Rollback Plan
+
+### If the migration must be rolled back:
+
+1. **Keep electron-store file** — Do NOT delete `wallhaven-data.json` in the migration script. Rename it to `.bak` at most. The file is the rollback source.
+
+2. **Rollback code changes:**
+   ```bash
+   git revert <migration-commit>
+   # OR restore specific files:
+   git checkout HEAD~1 -- electron/main/database.ts
+   git checkout HEAD~1 -- src/repositories/*.repository.ts
+   ```
+
+3. **Delete SQLite file** — `rm ~/Library/Application\ Support/wallhaven/wallhaven-data.db` (or equivalent path).
+   The electron-store data is still intact and will be read on next launch.
+
+4. **Verify** — Launch app. All settings, favorites, and download history should be restored from electron-store.
+
+### The backup file:
+- Location: `{userData}/wallhaven-data.json.bak` (created by migration script)
+- File is the original electron-store config before migration
+- Restore: copy `.bak` back to `wallhaven-data.json`, delete SQLite file, revert code
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Concurrency slider:** Slider changes value in settings but the main process never re-reads `maxConcurrentDownloads` — the semaphore still uses the old value. Verify that changing settings triggers a queue re-evaluation.
-- [ ] **Retry display:** The download shows "downloading" state during retry, indistinguishable from a first attempt. The user cannot tell the difference between progress and a retry. Verify that retry state is visually distinct.
-- [ ] **Retry cancel during backoff:** User sees download in "failed — retrying in 10s" and clicks cancel. The cancel IPC runs but the retry timer fires and re-downloads. Verify that cancelling during backoff actually prevents the retry.
-- [ ] **Concurrent download count accuracy:** The `totalActive` computed property in the store counts anything with `state === 'downloading'`. But with retry, a task might show 'downloading' while actually waiting for backoff timer. Verify that the active count reflects *actually active HTTP connections* not just tasks in retry state.
-- [ ] **Persistence crash recovery:** After writing test (start N concurrent downloads, kill process, restart). Verify that: (a) no orphan state files remain, (b) no ".download" temp files are left without corresponding state, (c) restored count matches reality.
-- [ ] **Error aggregation on network fail:** Start 5 downloads, disconnect network. Verify that 1 aggregated error toast appears instead of 5 individual toasts.
-- [ ] **Progress IPC frequency:** With `maxConcurrentDownloads` set to 10, verify that the IPC channel carries no more than ~30 events/second total (not 10x10=100).
-- [ ] **Settings change during active downloads:** Change concurrency from 3 to 1 while 3 downloads are running. Verify that exactly 2 are paused and 1 continues.
-- [ ] **Retry jitter:** Start 5 downloads that all fail simultaneously. Verify that retry timers fire at different times (not all at the same second).
+- [ ] **Migration idempotency:** Launch app twice. After second launch, verify SQLite data count matches (no duplication).
+- [ ] **Main process reads:** Check `download-queue.ts` and `download.handler.ts` still import `store` from `../../store`. They should import `getDatabase` from `../../database` after migration.
+- [ ] **Preload store channel cleanup:** After Phase 2 cleanup, verify old `storeGet`/`storeSet`/`storeDelete`/`storeClear` are removed from preload.
+- [ ] **FK cascade:** Delete a collection with 3 favorites. Verify favorites are deleted too.
+- [ ] **Migration on fresh install:** Install app on a machine with no electron-store data. Verify app starts without errors and creates empty SQLite tables.
+- [ ] **Migration backup file:** Verify `wallhaven-data.json.bak` exists after migration.
+- [ ] **`schema_versions` table (if implemented):** Verify version 1 is recorded after migration.
+- [ ] **electron-store defaults:** Verify migration handles the `downloadFinishedList: []` default correctly.
+- [ ] **Orphaned favorites:** Verify migration filters favorites with `collection_id` not in the collections list.
+- [ ] **Settings persistence:** Change a setting, restart app, verify the change persists.
+- [ ] **Download queue settings:** Verify `maxConcurrentDownloads` change takes effect (download queue reads from SQLite).
+- [ ] **WAL checkpointing:** Run app for 30 minutes with favorites operations. Verify `-wal` file size stays bounded.
+- [ ] **Lazy initialization:** Verify `import { getDatabase } from './database'` does NOT immediately open a database connection. Database opens on first `getDatabase()` call.
+- [ ] **Vitest passes:** Run `npm run test:unit` without `node:sqlite` resolution errors. Verify repository tests use mocks or `:memory:` DB. Ensure system Node.js is v24+.
+- [ ] **Favorites atomic operations:** Verify `addFavorite()` does one INSERT, not read-all -> modify -> write-all.
+- [ ] **Settings JSON file removal:** Verify `settings.handler.ts` is removed or redirected. Verify `settings.json` is not written.
+- [ ] **electron-store removed from package.json:** After all phases, `"electron-store": "11.0.2"` removed from `devDependencies`.
+- [ ] **Zero build config changes:** Verify `electron.vite.config.ts` and `electron-builder.yml` have NO SQLite-related changes.
+- [ ] **processQueue() preserved:** Verify changing `maxConcurrentDownloads` still triggers queue re-evaluation.
 
 ---
 
@@ -574,42 +1008,52 @@ The main process sends errors as both strings (`{ error: "message" }` in start/d
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Zombie download (retry after cancel) | LOW | Clear retry timer on cancel/pause. Already-firing retry checks task state before proceeding. At worst, user cancels again. Code fix in one file. |
-| Progress persistence corruption | MEDIUM | State file already has orphan detection in `get-pending-downloads`. Add ordering fix (delete state before rename) to prevent the race. Existing orphan cleanup handles historical corruption. |
-| Error toast explosion on network fail | LOW | Add aggregation buffer to `handleProgress`. Fix is localized to `useDownload.ts`. |
-| Semaphore bypassed by direct IPC | HIGH | Requires moving queue logic to main process. This is a structural change — if not done in Phase 1, recovery requires a rewrite of the download handler. |
-| Retry storm after network recovery | MEDIUM | Add jitter to backoff, cap retry concurrency. Fix is in the retry scheduling logic. If not done upfront, existing timers will need to be cancelled and rescheduled with jitter. |
-
----
-
-## Pitfall-to-Phase Mapping
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Semaphore only in renderer (P1) | Phase 1 — Queue Infrastructure | Queue lives in main process `download.handler.ts`; renderer sends "enqueue" not "start" |
-| Retry on permanent errors (P2) | Phase 2 — Retry with Backoff | Error classification unit test: verify 403, 404, 401 are not retried; ECONNRESET, 503 are retried |
-| Zombie downloads (P3) | Phase 2 — Retry with Backoff | Retry timer cancellation on cancel/pause; state check before retry execution |
-| Retry storm / unbounded queue (P4) | Phase 1 (queue) + Phase 2 (jitter) | Jitter in backoff calculation; retry goes through queue (not direct IPC); max retry-in-flight cap |
-| Progress persistence corruption (P5) | Phase 1 — Queue Infrastructure | State file deleted before temp file rename; orphan cleanup correctly handles stale state files |
-| `windows[0]` hardcode (P6) | Phase 1 — Queue Infrastructure | Progress broadcast to all windows; verified with multi-window test |
-| IPC serialization overhead (P7) | Phase 1 — Queue Infrastructure | IPC frequency reduced; batch updates on renderer side; <30 events/sec at max concurrency |
-| Restore race with new starts (P8) | Phase 1 — Queue Infrastructure | Restored tasks go through queue; auto-resume up to concurrency limit |
-| Error feedback explosion (P9) | Phase 2 (retry) + Phase 3 (UX) | Aggregated error display; errors suppressed during active retry |
-| Settings change during active downloads | Phase 1 — Queue Infrastructure | Queue re-evaluated when `maxConcurrentDownloads` changes; excess downloads gracefully paused |
-| `useDownload` duplicating store state mutations | Phase 1 — Queue Infrastructure | All state mutations go through store methods; composable only orchestrates |
+| Migration non-idempotent (P1) | MEDIUM | Delete SQLite file, restore electron-store backup, fix migration guard, restart |
+| Partial migration from crash (P2) | MEDIUM | Migration rolls back automatically (transaction). Retry is safe. |
+| Main process still reads store (P3) | LOW | Change import in 2 files (download-queue.ts, download.handler.ts) |
+| Channel name confusion (P4) | LOW | Channel names stay the same — no conflict possible |
+| Unnecessary build config change (P5) | LOW | Revert electron.vite.config.ts and electron-builder.yml — no SQLite changes needed |
+| FK violation during migration (P6) | LOW | Add orphan filtering to migration script |
+| Legacy settings.json path (P7) | LOW | Redirect old channels to SQLite or remove dead code |
+| Migration takes too long (P8) | LOW | Show progress indicator on splash screen |
+| Default values not migrated (P9) | LOW | Fix migration check to handle store defaults |
+| FK cascade not working (P10) | LOW | Ensure `enableForeignKeyConstraints: true` in DatabaseSync constructor |
+| WAL file unbounded growth (M1) | LOW | Add periodic `PRAGMA wal_checkpoint(TRUNCATE)` — existing WAL can be checkpointed immediately |
+| Type safety gap (M2) | MEDIUM | Add row type definitions and mapping functions — requires refactoring repository methods |
+| Favorites blob pattern (M3) | MEDIUM | Redesign repository for atomic SQL operations — requires changing the API surface |
+| Startup blocking (M4) | LOW | Lazy-init the database — move `getDatabase()` call out of module-level code |
+| Testing blind spot (M5) | LOW | Mock repositories in unit tests; use `:memory:` SQLite in integration tests; enforce Node 24+ |
+| Schema evolution (M6) | LOW | Add `schema_versions` table and migration runner — can be retrofitted |
+| Dual-write inconsistency (M7) | MEDIUM | Systematic audit of all `store.get()`/`store.set()` calls; migrate read paths first |
 
 ---
 
 ## Sources
 
-- Existing codebase analysis: `electron/main/ipc/handlers/download.handler.ts`, `src/composables/download/useDownload.ts`, `src/stores/modules/download/index.ts`, `src/services/download.service.ts`
-- AWS Architecture Blog — "Exponential Backoff and Jitter": well-known distributed systems pattern (retry storm, jitter)
-- Electron IPC documentation — `webContents.send` and `BrowserWindow.getAllWindows` behavior under multiple windows
-- Node.js `fs` module — atomic write patterns (state file write-vs-rename ordering)
-- Axios error handling — `CanceledError` vs network errors vs HTTP errors classification
-- Vue 3 reactivity batching — `triggerRef` and reactive array mutation performance under high-frequency updates
-- *Personal experience / known patterns in Electron download managers*
+- Existing codebase analysis:
+  - `electron/main/store.ts` — electron-store defaults: `{ wallpaperQueryParams: null, appSettings: null, downloadFinishedList: [] }`
+  - `electron/main/ipc/handlers/store.handler.ts` — store-get/set/delete/clear IPC handlers; queue notification on settings change
+  - `electron/main/ipc/handlers/settings.handler.ts` — legacy settings.json persistence (redundant third path)
+  - `electron/main/ipc/handlers/download-queue.ts` — `store.get('appSettings')` direct read at line 94
+  - `electron/main/ipc/handlers/download.handler.ts` — `store.get('appSettings.downloadPath')` usage
+  - `src/repositories/favorites.repository.ts` — blob-oriented `getData()`/`setData()` pattern
+  - `src/repositories/download.repository.ts` — `get()` uses null fallback: `result.data || []`
+  - `src/utils/store.ts` — dead code (zero imports)
+  - `src/types/favorite.ts` — `FavoritesData.defaultCollectionId` field
+  - `src/clients/constants.ts` — `STORAGE_KEYS` enum (4 keys)
+  - `electron.vite.config.ts` — `externalizeDepsPlugin()` used; no SQLite config needed
+  - `package.json` — electron-store v11.0.2, postinstall: "electron-builder install-app-deps"
+- [Node.js 24 `node:sqlite` Documentation](https://nodejs.org/download/nightly/v24.0.0-nightly20250503f552c86fec/docs/api/sqlite.html) — Official API reference for DatabaseSync, StatementSync — HIGH confidence
+- [Electron 41.0.0 Release Announcement](https://az.electronjs.org/blog/electron-41-0) — Node.js v24.14.0 confirmed — HIGH confidence
+- [SQLite WAL documentation](https://www.sqlite.org/wal.html) — WAL mode guarantees and checkpoint behavior — HIGH confidence
+- [Electron Issue #45396](https://github.com/electron/electron/issues/45396) — "Databases Folder In User AppData Being Wiped" — MEDIUM confidence
+- [canopy/canopy Issue #2707](https://github.com/canopyide/canopy/issues/2707) — real-world electron-store to SQLite migration post-mortem — MEDIUM confidence
+- [SQLite schema versioning patterns](https://www.sqlite.org/lang_createtable.html) — `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` — HIGH confidence
+- [Signal Desktop SQLite practices](https://github.com/signalapp/Signal-Desktop) — Production Electron + SQLite reference (migration guards, FK handling) — MEDIUM confidence
+- [vitest-dev/vitest Discussion #2142](https://github.com/vitest-dev/vitest/discussions/2142) — `ELECTRON_RUN_AS_NODE` workaround for native modules — LOW confidence
+- [electron-vite Dependency Handling](https://electron-vite.org/guide/dependency-handling) — Native module externalization docs (confirms no changes needed for `node:sqlite`) — HIGH confidence
+- [TypeScript 6.0 Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6.0/) — Confirms TS 6.0 does not add Node built-in module types — HIGH confidence
 
 ---
-*Pitfalls research for: v4.0 多线程下载与重试退避机制*
-*Researched: 2026-05-01*
+*Pitfalls research for: v5.0 electron-store -> SQLite migration*
+*Researched: 2026-05-03*
