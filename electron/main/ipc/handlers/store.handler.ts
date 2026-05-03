@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 /**
- * SQLite-backed store IPC handlers — routes 4 known keys (appSettings,
- * wallpaperQueryParams, downloadFinishedList, favoritesData) to dedicated
+ * SQLite-backed store IPC handlers — routes 3 known keys (appSettings,
+ * wallpaperQueryParams, downloadFinishedList) to dedicated
  * tables via keyToTable().
  */
 
@@ -28,7 +28,6 @@ interface TableRoute {
 function keyToTable(key: string): TableRoute {
   switch (key) {
     case 'appSettings':
-    case 'favoritesData':
       return { table: 'settings', type: 'key_value' }
     case 'wallpaperQueryParams':
       return { table: 'search_params', type: 'single_row' }
