@@ -104,10 +104,6 @@ interface ElectronAPI {
   // 壁纸设置
   setWallpaper: (imagePath: string) => Promise<{ success: boolean; error: string | null }>
 
-  // 设置管理
-  saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>
-  loadSettings: () => Promise<{ success: boolean; settings: any | null; error?: string }>
-
   // Wallhaven API 代理
   wallhavenApiRequest: (params: { endpoint: string; params?: any; apiKey?: string }) => Promise<{
     success: boolean

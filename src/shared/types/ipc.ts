@@ -32,10 +32,6 @@ export const IPC_CHANNELS = {
   // 壁纸设置
   SET_WALLPAPER: 'set-wallpaper',
 
-  // 设置管理
-  SAVE_SETTINGS: 'save-settings',
-  LOAD_SETTINGS: 'load-settings',
-
   // API 代理
   WALLHAVEN_API_REQUEST: 'wallhaven-api-request',
 
@@ -261,30 +257,6 @@ export interface PendingDownload {
 export interface SetWallpaperResponse {
   success: boolean
   error: string | null
-}
-
-/**
- * 保存设置请求
- */
-export interface SaveSettingsRequest {
-  settings: Record<string, unknown>
-}
-
-/**
- * 保存设置响应
- */
-export interface SaveSettingsResponse {
-  success: boolean
-  error?: string
-}
-
-/**
- * 加载设置响应
- */
-export interface LoadSettingsResponse {
-  success: boolean
-  settings: Record<string, unknown> | null
-  error?: string
 }
 
 /**
