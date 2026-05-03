@@ -24,8 +24,15 @@ const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 const WAL_MONITOR_INTERVAL_MS = 60 * 1000 // 1 minute
 const WAL_SIZE_THRESHOLD_BYTES = 10 * 1024 * 1024 // 10 MB
 
-/** Full path to the SQLite database file — computed once at module level. */
-const DB_PATH = join(app.getPath('userData'), DB_FILENAME)
+/**
+ * Compute the full path to the SQLite database file lazily.
+ * Uses `app.getPath('userData')` which requires `app.ready()` to have fired.
+ * Computing at module level (DB_PATH constant) would crash if this module
+ * is imported before the `ready` event (WR-02).
+ */
+function getDbPath(): string {
+  return join(app.getPath('userData'), DB_FILENAME)
+}
 
 // ---------------------------------------------------------------------------
 // Module-level state (private, not exported)
@@ -165,7 +172,7 @@ function startWalMonitor(): void {
  */
 export function getDatabase(): DatabaseSync {
   if (!db) {
-    db = new DatabaseSync(DB_PATH, {
+    db = new DatabaseSync(getDbPath(), {
       enableForeignKeyConstraints: true,
       timeout: 5000
     })
