@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { store } from './store'
+import { closeDatabase } from './database'
 
 // 获取当前文件的目录路径
 const __filename = fileURLToPath(import.meta.url)
@@ -205,6 +206,10 @@ app.whenReady().then(() => {
   registerAllHandlers()
   verifyHandlers()
 
+  app.on('before-quit', () => {
+    closeDatabase()
+  })
+
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
@@ -222,6 +227,7 @@ app.on('window-all-closed', () => {
     splashTimeoutId = null
   }
   if (process.platform !== 'darwin') {
+    closeDatabase()
     app.quit()
   }
 })
