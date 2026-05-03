@@ -3,20 +3,20 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: electron-store 到 SQLite 迁移
 status: executing
-last_updated: "2026-05-03T22:00:00.000Z"
+last_updated: "2026-05-03T21:40:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 2
-  planned_phases: 2
-  total_plans: 6
-  completed_plans: 4
-  percent: 40
+  completed_phases: 3
+  planned_phases: 1
+  total_plans: 8
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — Phase 42 complete, Phase 43 planned
+> Current: Milestone v5.0 — Phase 43 complete, Phase 44 ready
 > Status: Executing
 
 ---
@@ -33,9 +33,9 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 Phase: 43 — Favorites & Collections Migration
 Plan: 2 plans (43-01, 43-02)
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 43 planned (2 plans, 2 waves)
-Current file: .planning/phases/43-favorites-collections-migration/43-CONTEXT.md
+Status: Complete
+Last activity: 2026-05-03 — Phase 43 executed and verified (2/2 plans, 7 commits)
+Current file: .planning/phases/43-favorites-collections-migration/43-VERIFICATION.md
 
 ---
 
@@ -44,10 +44,10 @@ Current file: .planning/phases/43-favorites-collections-migration/43-CONTEXT.md
 | Metric | Value |
 |--------|-------|
 | Total phases (v5.0) | 5 |
-| Completed phases | 2 |
-| Total plans | 4 |
-| Completed plans | 4 |
-| Overall progress | 40% |
+| Completed phases | 3 |
+| Total plans | 8 |
+| Completed plans | 6 |
+| Overall progress | 60% |
 
 ---
 
@@ -92,4 +92,5 @@ Current file: .planning/phases/43-favorites-collections-migration/43-CONTEXT.md
 
 ---
 
-*Updated: 2026-05-03 — Phase 42 Complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)*
+*Updated: 2026-05-03 — Phase 42 Complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
+Phase 43 Complete (43-01: favorites IPC handler with 11 channels + preload/types wiring, 43-02: electronClient methods + repository rewrite + keyToTable cleanup). 7 commits, 13/13 must-haves verified.*

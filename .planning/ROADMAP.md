@@ -97,7 +97,7 @@ Plans:
 
 - [x] **Phase 41: Database Infrastructure** (2/2 plans) — Core database connection, schema, and utilities
 - [x] **Phase 42: Main Process + Store Handler Cutover** (2/2 plans) — All generic store access backed by SQLite
-- [ ] **Phase 43: Favorites & Collections Migration** (2 plans) — Targeted SQL operations for favorites
+- [x] **Phase 43: Favorites & Collections Migration** (2/2 plans) — Targeted SQL operations for favorites
 - [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
 - [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
 
@@ -143,10 +143,9 @@ Plans:
   2. Favorite existence check uses SQL index query (not in-memory Set from full blob)
   3. All favorites operations (add, remove, move, check) produce correct results via SQL queries
   4. Multiple collections per wallpaper still supported after migration
-**Plans**: 2 plans
-Plans:
-- [ ] 43-01-PLAN.md — Create dedicated favorites IPC handler module with 11 channels, preload bridges, and type declarations
-- [ ] 43-02-PLAN.md — Rewrite favorites.repository.ts to use dedicated IPC channels, add electronClient favorites methods, remove favoritesData from keyToTable()
+**Plans**: 2 plans (completed 2026-05-03)
+- [x] 43-01-PLAN.md — Create dedicated favorites IPC handler module with 11 channels, preload bridges, and type declarations
+- [x] 43-02-PLAN.md — Rewrite favorites.repository.ts to use dedicated IPC channels, add electronClient favorites methods, remove favoritesData from keyToTable()
 
 ### Phase 44: Migration Script
 **Goal**: One-time migration from electron-store to SQLite; idempotent and data-safe
@@ -197,7 +196,7 @@ Plans:
 | 40. 在线壁纸页面小红心多收藏夹状态区分 | v4.5 | 3/3 | Complete | 2026-05-02 |
 | 41. Database Infrastructure | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 42. Main Process + Store Handler Cutover | v5.0 | 2/2 | Complete | 2026-05-03 |
-| 43. Favorites & Collections Migration | v5.0 | 0/2 | Planning | - |
+| 43. Favorites & Collections Migration | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 44. Migration Script | v5.0 | 0/0 | Not started | - |
 | 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |
 
@@ -244,8 +243,8 @@ Plans:
 | REPO-01 | 42 | Complete |
 | REPO-02 | 42 | Complete |
 | REPO-03 | 42 | Complete |
-| REPO-04 | 43 | Pending |
-| REPO-05 | 43 | Pending |
+| REPO-04 | 43 | Complete |
+| REPO-05 | 43 | Complete |
 | CLN-01 | 45 | Pending |
 | CLN-02 | 45 | Pending |
 | CLN-03 | 45 | Pending |
@@ -255,7 +254,7 @@ Plans:
 | VER-01 | 45 | Pending |
 | VER-02 | 44 | Pending |
 | VER-03 | 45 | Pending |
-| VER-04 | 43 | Pending |
+| VER-04 | 43 | Complete |
 | VER-05 | 45 | Pending |
 
 **Coverage:**
