@@ -232,3 +232,45 @@ export function withTransaction<T>(fn: () => T): T {
     throw error
   }
 }
+
+/**
+ * Read a JSON-serialized value from the settings table by key.
+ * Returns parsed value, or null if key doesn't exist or parsing fails.
+ */
+export function getAppSetting(key: string): unknown {
+  try {
+    const row = getDatabase()
+      .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
+      .get(key)
+    if (!row) return null
+    return JSON.parse(row.value)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the download path from appSettings.
+ * Returns the stored path, or undefined if not set.
+ * NOTE: The caller (GET_PENDING_DOWNLOADS handler) already handles the undefined case
+ * by returning an empty array.
+ */
+export function getDownloadPath(): string | undefined {
+  const appSettings = getAppSetting('appSettings') as Record<string, unknown> | null
+  if (appSettings && typeof appSettings.downloadPath === 'string') {
+    return appSettings.downloadPath
+  }
+  return undefined
+}
+
+/**
+ * Get the max concurrent downloads from appSettings.
+ * Defaults to 3 if not set or unparseable.
+ */
+export function getMaxConcurrentDownloads(): number {
+  const appSettings = getAppSetting('appSettings') as Record<string, unknown> | null
+  if (appSettings && typeof appSettings.maxConcurrentDownloads === 'number') {
+    return appSettings.maxConcurrentDownloads
+  }
+  return 3
+}
