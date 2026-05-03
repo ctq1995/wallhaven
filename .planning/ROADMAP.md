@@ -98,7 +98,7 @@ Plans:
 - [x] **Phase 41: Database Infrastructure** (2/2 plans) — Core database connection, schema, and utilities
 - [x] **Phase 42: Main Process + Store Handler Cutover** (2/2 plans) — All generic store access backed by SQLite
 - [x] **Phase 43: Favorites & Collections Migration** (2/2 plans) — Targeted SQL operations for favorites
-- [ ] **Phase 44: Migration Script** (2 plans) — One-time electron-store to SQLite migration
+- [x] **Phase 44: Migration Script** (2/2 plans) — One-time electron-store to SQLite migration
 - [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
 
 </details>
@@ -156,10 +156,9 @@ Plans:
   2. Migration creates a backup copy of electron-store file before any SQLite writes
   3. Migration is idempotent — guarded by _migrated_from_store flag, safe to re-run if interrupted
   4. Existing settings, search params, download history, and favorites survive migration without data loss
-**Plans**: 2 plans (2 waves)
-Plans:
-- [ ] 44-01-PLAN.md — **Wave 1** Create electron/main/migration.ts with runMigration(), all 4 domain migrations, backup, idempotency guard
-- [ ] 44-02-PLAN.md — **Wave 2 *(blocked on Wave 1)*:** Integrate runMigration() into getDatabase() + fix store-clear to preserve _migrated_from_store
+**Plans**: 2 plans (completed 2026-05-03)
+- [x] 44-01-PLAN.md — **Wave 1** Create electron/main/migration.ts with runMigration(), all 4 domain migrations, backup, idempotency guard
+- [x] 44-02-PLAN.md — **Wave 2 *(depends on 44-01)*:** Integrate runMigration() into getDatabase() + fix store-clear to preserve _migrated_from_store
 
 ### Phase 45: Cleanup & Final Verification
 **Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
@@ -175,10 +174,14 @@ Plans:
   7. Application compiles and bundles without electron-store dependency (VER-05)
   8. Full functional verification: all features (settings, download, search, favorites) work (VER-01)
   9. App launches and initializes database within 500ms overhead (VER-03)
-**Plans**: 2 plans
+**Plans**: 6 plans
 Plans:
-- [ ] 45-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
-- [ ] 45-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
+- [ ] 45-01-PLAN.md — Verify CR-01/CR-02 fix status (validation only, no code changes)
+- [ ] 45-02-PLAN.md — Delete settings.handler.ts and its registration
+- [ ] 45-03-PLAN.md — Clean preload and electronClient saveSettings/loadSettings
+- [ ] 45-04-PLAN.md — Clean IPC enums and type definitions
+- [ ] 45-05-PLAN.md — Delete store.ts and electron-store dependency
+- [ ] 45-06-PLAN.md — Final build and functional verification
 
 ---
 
@@ -197,8 +200,8 @@ Plans:
 | 41. Database Infrastructure | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 42. Main Process + Store Handler Cutover | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 43. Favorites & Collections Migration | v5.0 | 2/2 | Complete | 2026-05-03 |
-| 44. Migration Script | v5.0 | 0/2 | Not started | - |
-| 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |
+| 44. Migration Script | v5.0 | 2/2 | Complete | 2026-05-03 |
+| 45. Cleanup & Final Verification | v5.0 | 0/6 | Ready to execute | - |
 
 ---
 
@@ -231,9 +234,9 @@ Plans:
 | DBINFRA-02 | 41 | Complete |
 | DBINFRA-03 | 41 | Complete |
 | DBINFRA-04 | 41 | Complete |
-| DBINFRA-05 | 44 | Pending |
-| DBINFRA-06 | 44 | Pending |
-| DBINFRA-07 | 44 | Pending |
+| DBINFRA-05 | 44 | Complete |
+| DBINFRA-06 | 44 | Complete |
+| DBINFRA-07 | 44 | Complete |
 | MPDIR-01 | 42 | Complete |
 | MPDIR-02 | 42 | Complete |
 | STIPC-01 | 42 | Complete |
@@ -252,7 +255,7 @@ Plans:
 | CLN-05 | 45 | Pending |
 | CLN-06 | 45 | Pending |
 | VER-01 | 45 | Pending |
-| VER-02 | 44 | Pending |
+| VER-02 | 44 | Complete |
 | VER-03 | 45 | Pending |
 | VER-04 | 43 | Complete |
 | VER-05 | 45 | Pending |
