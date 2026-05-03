@@ -3,11 +3,12 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: electron-store 到 SQLite 迁移
 status: executing
-last_updated: "2026-05-03T11:25:00.000Z"
+last_updated: "2026-05-03T22:00:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
+  planned_phases: 1
+  total_plans: 4
   completed_plans: 2
   percent: 20
 ---
@@ -15,7 +16,7 @@ progress:
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — Phase 41 complete, Phase 42 pending
+> Current: Milestone v5.0 — Phase 41 complete, Phase 42 planned
 > Status: Executing
 
 ---
@@ -31,8 +32,8 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 ## Current Position
 
 Phase: 42 — Main Process + Store Handler Cutover
-Plans: 2 plans
-Status: Planned
+Plan: 2 plans (42-01, 42-02)
+Status: Ready to execute
 Last activity: 2026-05-03 — Phase 42 plans created (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
 
 ---
