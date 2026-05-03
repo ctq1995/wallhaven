@@ -1,23 +1,23 @@
 ---
 gsd_state_version: 1.0
 milestone: v5.0
-milestone_name: Traceability
-status: completed
-last_updated: "2026-05-03T14:08:49.040Z"
-last_activity: 2026-05-03 — Phase 43 executed and verified (2/2 plans, 7 commits)
+milestone_name: Cleanup & Final Verification
+status: planning
+last_updated: "2026-05-03T15:30:00.000Z"
+last_activity: 2026-05-03 — Phase 45 context gathered, ready for planning
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  completed_phases: 4
+  total_plans: 8
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
 
 > Updated: 2026-05-03
-> Current: Milestone v5.0 — Phase 43 complete, Phase 44 ready
-> Status: Executing
+> Current: Milestone v5.0 — Phase 45 ready for planning
+> Status: Planning
 
 ---
 
@@ -31,11 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 44 — Migration Script
-Plan: 2 plans (44-01, 44-02)
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 44 planned and verified (2 plans, 2 waves)
-Current file: .planning/phases/44-migration-script/44-02-PLAN.md
+Phase: 45 — Cleanup & Final Verification
+Plan: 0 plans (context gathered, ready for planning)
+Status: Ready for planning
+Last activity: 2026-05-03 — Phase 45 context gathered
 
 ---
 
@@ -44,10 +43,10 @@ Current file: .planning/phases/44-migration-script/44-02-PLAN.md
 | Metric | Value |
 |--------|-------|
 | Total phases (v5.0) | 5 |
-| Completed phases | 3 |
+| Completed phases | 4 |
 | Total plans | 8 |
-| Completed plans | 6 |
-| Overall progress | 60% |
+| Completed plans | 8 |
+| Overall progress | 80% |
 
 ---
 
@@ -83,17 +82,16 @@ Current file: .planning/phases/44-migration-script/44-02-PLAN.md
 
 - `node:sqlite` is Node.js Stability 1.1 — API change risk. Mitigated by using only stable core API (prepare/get/all/run/exec) and Repository layer insulation. Fallback: `@photostructure/sqlite` with identical API.
 
-### Decisions (from 41-01 and 41-02)
+### Phase 45 Decisions
 
-- "Use exact interface shapes per STACK.md spec adapted to CONVENTIONS.md: interface for RunResult/DatabaseOptions/ColumnInfo, type for BindParams"
-- "Engines.node set to >=24 (minimum) rather than a range — Electron 41 bundles Node.js 24.14.0+, CI runners support this"
-- "Lazy singleton initialization: export getDatabase() function, not top-level instance — database never opens at module import time"
-- "withTransaction() uses BEGIN IMMEDIATE to prevent SQLITE_BUSY from concurrent writes, rolls back on error, and propagates original exception"
-- "Periodic WAL checkpoint: 5-min PASSIVE interval with .unref(), TRUNCATE fallback on failure"
-- "WAL size monitor: 1-min interval, 10MB threshold triggers TRUNCATE auto-checkpoint"
-- "closeDatabase() runs final TRUNCATE checkpoint before closing connection"
+**From context gathering (2026-05-03):**
+
+- **D-01:** Phase 44 的两个 CRITICAL issues在 Phase 45 开头修复，作为第一个计划项
+- **D-02:** 全部清理推荐范围，不保留任何 electron-store 相关代码
+- **D-03:** 清理顺序：先修复 CRITICAL issues，再移除文件，最后清理依赖和类型定义
+- **D-04:** 使用手动功能测试验证
+- **D-09:** `electron/main/index.ts` 中移除 `import { store } from './store'` 和 `export { store }`
 
 ---
 
-*Updated: 2026-05-03 — Phase 42 Complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
-Phase 43 Complete (43-01: favorites IPC handler with 11 channels + preload/types wiring, 43-02: electronClient methods + repository rewrite + keyToTable cleanup). 7 commits, 13/13 must-haves verified.*
+*Updated: 2026-05-03 — Phase 45 context gathered, ready for planning*
