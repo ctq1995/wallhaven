@@ -34,7 +34,8 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 Phase: 43 — Favorites & Collections Migration
 Plan: 0 plans
 Status: Ready to plan
-Last activity: 2026-05-03 — Phase 42 complete (42-01: database helpers + direct import cutover, 42-02: store handler rewrite + download repo cleanup)
+Last activity: 2026-05-03 — Phase 43 context gathered (favorites & collections migration)
+Current file: .planning/phases/43-favorites-collections-migration/43-CONTEXT.md
 
 ---
 
