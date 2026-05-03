@@ -7,8 +7,6 @@ import type { IpcResponse } from '@/shared/types/ipc'
 import type { FinishedDownloadItem } from '@/types'
 import { electronClient, STORAGE_KEYS } from '@/clients'
 
-/** 最大保存已完成下载记录数量 */
-const MAX_FINISHED_ITEMS = 50
 
 /**
  * 下载仓储
@@ -37,9 +35,7 @@ export const downloadRepository = {
    * @param items - 下载记录列表
    */
   async set(items: FinishedDownloadItem[]): Promise<IpcResponse<void>> {
-    // 限制列表长度
-    const limitedItems = items.slice(0, MAX_FINISHED_ITEMS)
-    return electronClient.storeSet(STORAGE_KEYS.DOWNLOAD_FINISHED_LIST, limitedItems)
+    return electronClient.storeSet(STORAGE_KEYS.DOWNLOAD_FINISHED_LIST, items)
   },
 
   /**
@@ -52,8 +48,7 @@ export const downloadRepository = {
       return { success: false, error: result.error }
     }
 
-    // 添加到头部，并限制长度（result.data 已在 get() 中保证为数组）
-    const items = [item, ...(result.data ?? [])].slice(0, MAX_FINISHED_ITEMS)
+    const items = [item, ...(result.data ?? [])]
     return this.set(items)
   },
 
