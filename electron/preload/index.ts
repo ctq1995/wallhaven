@@ -52,10 +52,6 @@ export interface ElectronAPI {
   // 壁纸设置
   setWallpaper: (imagePath: string) => Promise<{ success: boolean; error: string | null }>
 
-  // 设置管理
-  saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>
-  loadSettings: () => Promise<{ success: boolean; settings: any | null; error?: string }>
-
   // Wallhaven API 代理
   wallhavenApiRequest: (params: { endpoint: string; params?: any; apiKey?: string }) => Promise<{
     success: boolean
@@ -198,16 +194,6 @@ const electronAPI: ElectronAPI = {
   setWallpaper: (imagePath: string) => {
     console.log('[Preload] setWallpaper called:', imagePath)
     return ipcRenderer.invoke(IPC_CHANNELS.SET_WALLPAPER, imagePath)
-  },
-
-  // 设置管理
-  saveSettings: (settings: any) => {
-    console.log('[Preload] saveSettings called')
-    return ipcRenderer.invoke(IPC_CHANNELS.SAVE_SETTINGS, settings)
-  },
-  loadSettings: () => {
-    console.log('[Preload] loadSettings called')
-    return ipcRenderer.invoke(IPC_CHANNELS.LOAD_SETTINGS)
   },
 
   // Wallhaven API 代理

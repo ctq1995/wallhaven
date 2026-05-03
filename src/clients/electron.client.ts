@@ -785,66 +785,6 @@ class ElectronClientImpl {
     }
   }
 
-  // ==================== 设置管理 ====================
-
-  /**
-   * 保存设置
-   */
-  async saveSettings(settings: Record<string, unknown>): Promise<IpcResponse<void>> {
-    if (!this.isAvailable()) {
-      return this.createUnavailableResponse<void>()
-    }
-
-    try {
-      const result = await window.electronAPI.saveSettings(settings)
-      if (result.success) {
-        return { success: true }
-      }
-      return {
-        success: false,
-        error: {
-          code: 'SAVE_SETTINGS_ERROR',
-          message: result.error || 'Save settings failed',
-        },
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: { code: 'SAVE_SETTINGS_ERROR', message: String(error) },
-      }
-    }
-  }
-
-  /**
-   * 加载设置
-   */
-  async loadSettings(): Promise<IpcResponse<Record<string, unknown> | null>> {
-    if (!this.isAvailable()) {
-      return this.createUnavailableResponse<Record<string, unknown> | null>()
-    }
-
-    try {
-      const result = await window.electronAPI.loadSettings()
-      if (result.success) {
-        return { success: true, data: result.settings }
-      }
-      return {
-        success: false,
-        data: null,
-        error: {
-          code: 'LOAD_SETTINGS_ERROR',
-          message: result.error || 'Load settings failed',
-        },
-      }
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: { code: 'LOAD_SETTINGS_ERROR', message: String(error) },
-      }
-    }
-  }
-
   // ==================== API 代理 ====================
 
   /**
