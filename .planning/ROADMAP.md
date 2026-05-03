@@ -98,7 +98,7 @@ Plans:
 - [x] **Phase 41: Database Infrastructure** (2/2 plans) — Core database connection, schema, and utilities
 - [x] **Phase 42: Main Process + Store Handler Cutover** (2/2 plans) — All generic store access backed by SQLite
 - [x] **Phase 43: Favorites & Collections Migration** (2/2 plans) — Targeted SQL operations for favorites
-- [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
+- [ ] **Phase 44: Migration Script** (2 plans) — One-time electron-store to SQLite migration
 - [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
 
 </details>
@@ -158,8 +158,8 @@ Plans:
   4. Existing settings, search params, download history, and favorites survive migration without data loss
 **Plans**: 2 plans
 Plans:
-- [ ] 44-01-PLAN.md — Database helpers (getAppSetting/getDownloadPath/getMaxConcurrentDownloads) + cutover direct store imports in download-queue.ts and download.handler.ts
-- [ ] 44-02-PLAN.md — Rewrite store.handler.ts with keyToTable() routing to SQLite + remove app-layer max-50 slice from download.repository.ts
+- [ ] 44-01-PLAN.md — Create electron/main/migration.ts with runMigration(), all 4 domain migrations, backup, idempotency guard
+- [ ] 44-02-PLAN.md — Integrate runMigration() into getDatabase() + fix store-clear to preserve _migrated_from_store
 
 ### Phase 45: Cleanup & Final Verification
 **Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
@@ -197,7 +197,7 @@ Plans:
 | 41. Database Infrastructure | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 42. Main Process + Store Handler Cutover | v5.0 | 2/2 | Complete | 2026-05-03 |
 | 43. Favorites & Collections Migration | v5.0 | 2/2 | Complete | 2026-05-03 |
-| 44. Migration Script | v5.0 | 0/0 | Not started | - |
+| 44. Migration Script | v5.0 | 0/2 | Not started | - |
 | 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |
 
 ---
