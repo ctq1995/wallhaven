@@ -10,10 +10,10 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 ## Current Milestone: v5.0 electron-store 到 SQLite 迁移
 
-**Goal:** 将持久化存储从 electron-store（JSON 文件）迁移到 SQLite（better-sqlite3），利用关系型数据库替代 JSON blob 存储，实现高效的部分更新和查询能力。
+**Goal:** 将持久化存储从 electron-store（JSON 文件）迁移到 SQLite（node:sqlite，Node.js 内置模块），利用关系型数据库替代 JSON blob 存储，实现高效的部分更新和查询能力。
 
 **Target features:**
-- 引入 better-sqlite3 依赖，建立数据库连接与初始化
+- 使用 node:sqlite（Node.js 内置，零外部依赖）建立数据库连接与初始化
 - 设计数据库表结构（settings、search_params、download_history、collections、favorites）
 - 实现数据迁移脚本（从 electron-store JSON 导入 SQLite）
 - Repository 层改造（用 SQLite 查询替换 electron-store IPC 调用）

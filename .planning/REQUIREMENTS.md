@@ -68,40 +68,39 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DBINFRA-01 | — | Pending |
-| DBINFRA-02 | — | Pending |
-| DBINFRA-03 | — | Pending |
-| DBINFRA-04 | — | Pending |
-| DBINFRA-05 | — | Pending |
-| DBINFRA-06 | — | Pending |
-| DBINFRA-07 | — | Pending |
-| MPDIR-01 | — | Pending |
-| MPDIR-02 | — | Pending |
-| STIPC-01 | — | Pending |
-| STIPC-02 | — | Pending |
-| STIPC-03 | — | Pending |
-| STIPC-04 | — | Pending |
-| REPO-01 | — | Pending |
-| REPO-02 | — | Pending |
-| REPO-03 | — | Pending |
-| REPO-04 | — | Pending |
-| REPO-05 | — | Pending |
-| CLN-01 | — | Pending |
-| CLN-02 | — | Pending |
-| CLN-03 | — | Pending |
-| CLN-04 | — | Pending |
-| CLN-05 | — | Pending |
-| CLN-06 | — | Pending |
-| VER-01 | — | Pending |
-| VER-02 | — | Pending |
-| VER-03 | — | Pending |
-| VER-04 | — | Pending |
-| VER-05 | — | Pending |
+| DBINFRA-01 | 41 | Pending |
+| DBINFRA-02 | 41 | Pending |
+| DBINFRA-03 | 41 | Pending |
+| DBINFRA-04 | 41 | Pending |
+| DBINFRA-05 | 44 | Pending |
+| DBINFRA-06 | 44 | Pending |
+| DBINFRA-07 | 44 | Pending |
+| MPDIR-01 | 42 | Pending |
+| MPDIR-02 | 42 | Pending |
+| STIPC-01 | 42 | Pending |
+| STIPC-02 | 42 | Pending |
+| STIPC-03 | 42 | Pending |
+| STIPC-04 | 42 | Pending |
+| REPO-01 | 42 | Pending |
+| REPO-02 | 42 | Pending |
+| REPO-03 | 42 | Pending |
+| REPO-04 | 43 | Pending |
+| REPO-05 | 43 | Pending |
+| CLN-01 | 45 | Pending |
+| CLN-02 | 45 | Pending |
+| CLN-03 | 45 | Pending |
+| CLN-04 | 45 | Pending |
+| CLN-05 | 45 | Pending |
+| CLN-06 | 45 | Pending |
+| VER-01 | 45 | Pending |
+| VER-02 | 44 | Pending |
+| VER-03 | 45 | Pending |
+| VER-04 | 43 | Pending |
+| VER-05 | 45 | Pending |
 
 **Coverage:**
 - v5.0 requirements: 29 total
-- Mapped to phases: 0
-- Unmapped: 29
+- Mapped to phases: 29/29 ✓
 
 ---
 *Requirements defined: 2026-05-03*

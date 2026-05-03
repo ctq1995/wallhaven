@@ -21,6 +21,7 @@
 - ✅ **v4.3 downloadWallpaperFile 分层重构** -- Phase 38 (shipped 2026-05-02)
 - ✅ **v4.4 收藏状态小红心与取消收藏** -- Phase 39 (shipped 2026-05-02)
 - ✅ **v4.5 在线壁纸页面小红心状态** -- Phase 40 (shipped 2026-05-02)
+- 🚧 **v5.0 electron-store 到 SQLite 迁移** -- Phases 41-45 (planning)
 
 ---
 
@@ -91,6 +92,84 @@ Plans:
 
 ---
 
+<details>
+<summary>🚧 v5.0 electron-store 到 SQLite 迁移 (Phases 41-45) — PLANNING</summary>
+
+- [ ] **Phase 41: Database Infrastructure** (0 plans) — Core database connection, schema, and utilities
+- [ ] **Phase 42: Main Process + Store Handler Cutover** (0 plans) — All generic store access backed by SQLite
+- [ ] **Phase 43: Favorites & Collections Migration** (0 plans) — Targeted SQL operations for favorites
+- [ ] **Phase 44: Migration Script** (0 plans) — One-time electron-store to SQLite migration
+- [ ] **Phase 45: Cleanup & Final Verification** (0 plans) — Remove electron-store, verify build integrity
+
+</details>
+
+---
+
+## Phase Details
+
+### Phase 41: Database Infrastructure
+**Goal**: Core database connection, schema initialization, and utility layer established
+**Depends on**: Nothing (first phase of v5.0 milestone)
+**Requirements**: DBINFRA-01, DBINFRA-02, DBINFRA-03, DBINFRA-04
+**Success Criteria** (what must be TRUE):
+  1. Singleton DatabaseSync initializes lazily on first access and shuts down cleanly
+  2. All 5 tables (settings, search_params, download_history, collections, favorites) created with correct schema, foreign keys, and indexes
+  3. WAL mode is enabled on the database connection
+  4. withTransaction() utility correctly commits or rolls back multi-write operations
+**Plans**: TBD
+
+### Phase 42: Main Process + Store Handler Cutover
+**Goal**: All generic store access (direct imports + generic IPC handlers + repositories) backed by SQLite
+**Depends on**: Phase 41
+**Requirements**: MPDIR-01, MPDIR-02, STIPC-01, STIPC-02, STIPC-03, STIPC-04, REPO-01, REPO-02, REPO-03
+**Success Criteria** (what must be TRUE):
+  1. download-queue.ts reads maxConcurrentDownloads from SQLite (not store.get)
+  2. download.handler.ts reads downloadPath from SQLite (not store.get)
+  3. store-get/store-set/store-delete/store-clear IPC handlers query/upsert/delete from SQLite tables
+  4. SettingsRepository, WallpaperRepository, DownloadRepository all route through SQLite via unchanged IPC
+  5. Download history max-50 constraint enforced by SQL (not application code)
+**Plans**: TBD
+
+### Phase 43: Favorites & Collections Migration
+**Goal**: FavoritesRepository redesigned to use targeted SQL operations instead of full-blob read-modify-write
+**Depends on**: Phase 42
+**Requirements**: REPO-04, REPO-05, VER-04
+**Success Criteria** (what must be TRUE):
+  1. FavoritesRepository uses INSERT/UPDATE/DELETE per mutation (not full-blob read-modify-write)
+  2. Favorite existence check uses SQL index query (not in-memory Set from full blob)
+  3. All favorites operations (add, remove, move, check) produce correct results via SQL queries
+  4. Multiple collections per wallpaper still supported after migration
+**Plans**: TBD
+
+### Phase 44: Migration Script
+**Goal**: One-time migration from electron-store to SQLite; idempotent and data-safe
+**Depends on**: Phase 43
+**Requirements**: DBINFRA-05, DBINFRA-06, DBINFRA-07, VER-02
+**Success Criteria** (what must be TRUE):
+  1. Migration reads all 4 domains from electron-store and imports into SQLite in a single transaction
+  2. Migration creates a backup copy of electron-store file before any SQLite writes
+  3. Migration is idempotent — guarded by _migrated_from_store flag, safe to re-run if interrupted
+  4. Existing settings, search params, download history, and favorites survive migration without data loss
+**Plans**: TBD
+
+### Phase 45: Cleanup & Final Verification
+**Goal**: Remove all electron-store code and dependencies; verify build integrity and feature completeness
+**Depends on**: Phase 44
+**Requirements**: CLN-01, CLN-02, CLN-03, CLN-04, CLN-05, CLN-06, VER-01, VER-03, VER-05
+**Success Criteria** (what must be TRUE):
+  1. electron-store removed from package.json dependencies
+  2. electron/main/store.ts deleted with no remaining consumers
+  3. settings.handler.ts and its IPC channels removed (zero callers)
+  4. src/utils/store.ts deleted (no remaining consumers)
+  5. Legacy electronClient.saveSettings()/loadSettings() removed (if confirmed unused)
+  6. All unused store handler IPC channels removed
+  7. Application compiles and bundles without electron-store dependency (VER-05)
+  8. Full functional verification: all features (settings, download, search, favorites) work (VER-01)
+  9. App launches and initializes database within 500ms overhead (VER-03)
+**Plans**: TBD
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -103,6 +182,11 @@ Plans:
 | 38. downloadWallpaperFile 分层重构 | v4.3 | 2/2 | Complete | 2026-05-02 |
 | 39. 收藏状态小红心逻辑与取消收藏功能 | v4.4 | 2/2 | Complete | 2026-05-02 |
 | 40. 在线壁纸页面小红心多收藏夹状态区分 | v4.5 | 3/3 | Complete | 2026-05-02 |
+| 41. Database Infrastructure | v5.0 | 0/0 | Not started | - |
+| 42. Main Process + Store Handler Cutover | v5.0 | 0/0 | Not started | - |
+| 43. Favorites & Collections Migration | v5.0 | 0/0 | Not started | - |
+| 44. Migration Script | v5.0 | 0/0 | Not started | - |
+| 45. Cleanup & Final Verification | v5.0 | 0/0 | Not started | - |
 
 ---
 
@@ -126,3 +210,41 @@ Plans:
 | HEART-02 | 40 | getHeartState() pure function | Complete |
 | HEART-03 | 40 | Three-state heart in WallpaperList with CSS | Complete |
 | HEART-04 | 40 | Three-state heart in ImagePreview with fallback | Complete |
+
+### v5.0 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DBINFRA-01 | 41 | Pending |
+| DBINFRA-02 | 41 | Pending |
+| DBINFRA-03 | 41 | Pending |
+| DBINFRA-04 | 41 | Pending |
+| DBINFRA-05 | 44 | Pending |
+| DBINFRA-06 | 44 | Pending |
+| DBINFRA-07 | 44 | Pending |
+| MPDIR-01 | 42 | Pending |
+| MPDIR-02 | 42 | Pending |
+| STIPC-01 | 42 | Pending |
+| STIPC-02 | 42 | Pending |
+| STIPC-03 | 42 | Pending |
+| STIPC-04 | 42 | Pending |
+| REPO-01 | 42 | Pending |
+| REPO-02 | 42 | Pending |
+| REPO-03 | 42 | Pending |
+| REPO-04 | 43 | Pending |
+| REPO-05 | 43 | Pending |
+| CLN-01 | 45 | Pending |
+| CLN-02 | 45 | Pending |
+| CLN-03 | 45 | Pending |
+| CLN-04 | 45 | Pending |
+| CLN-05 | 45 | Pending |
+| CLN-06 | 45 | Pending |
+| VER-01 | 45 | Pending |
+| VER-02 | 44 | Pending |
+| VER-03 | 45 | Pending |
+| VER-04 | 43 | Pending |
+| VER-05 | 45 | Pending |
+
+**Coverage:**
+- v5.0 requirements: 29 total
+- Mapped to phases: 29/29 ✓
