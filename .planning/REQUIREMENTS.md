@@ -1,106 +1,91 @@
-# Requirements: Wallhaven v5.0 — electron-store 到 SQLite 迁移
+# Requirements: Wallhaven v6.0 — 传统分页重构
 
-**Defined:** 2026-05-03
+**Defined:** 2026-05-04
 **Core Value:** 收藏管理，分类随心 — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
-## v5.0 Requirements
+## v6.0 Requirements
 
-### Database Infrastructure
+### Online Wallpaper Pagination
 
-- [ ] **DBINFRA-01**: Create `electron/main/database.ts` with singleton `DatabaseSync` connection, lazy initialization, and proper shutdown
-- [x] **DBINFRA-02**: Add TypeScript declaration file (`electron/main/sqlite.d.ts`) for `node:sqlite` module covering used API surface
-- [ ] **DBINFRA-03**: Define 5-table schema (`settings`, `search_params`, `download_history`, `collections`, `favorites`) with foreign keys, indexes, and WAL mode
-- [ ] **DBINFRA-04**: Implement `withTransaction()` utility for atomic multi-write operations
-- [ ] **DBINFRA-05**: Create one-time migration script that reads electron-store data and imports into SQLite in a single transaction
-- [ ] **DBINFRA-06**: Migration script is idempotent — guarded by `_migrated_from_store` flag, safe to re-run if interrupted
-- [ ] **DBINFRA-07**: Migration creates backup copy of electron-store file before any SQLite writes
+- [ ] **ONLPAG-01**: User can see a pagination bar with page number navigation below the wallpaper grid
+- [ ] **ONLPAG-02**: Current page is highlighted in the pagination bar
+- [ ] **ONLPAG-03**: User can click "Previous"/"Next" buttons to navigate pages (disabled at boundaries)
+- [ ] **ONLPAG-04**: User can see total item count displayed (e.g., "共 1000 张")
+- [ ] **ONLPAG-05**: Page scrolls to top when switching pages
+- [ ] **ONLPAG-06**: Visited pages are cached in memory — switching back loads instantly without API request
+- [ ] **ONLPAG-07**: Cache is cleared when search filters change
+- [ ] **ONLPAG-08**: User can navigate pages using left/right arrow keys
 
-### Main Process Direct Imports
+### Favorite Status Calculation
 
-- [ ] **MPDIR-01**: Replace `store.get('appSettings')` in `download-queue.ts` with SQLite query reading `maxConcurrentDownloads`
-- [ ] **MPDIR-02**: Replace `store.get('appSettings.downloadPath')` in `download.handler.ts` with SQLite query reading `downloadPath`
+- [ ] **FAVSTA-01**: WallpaperItem includes `is_favorite` boolean field returned from Service layer
+- [ ] **FAVSTA-02**: `is_favorite` is computed by checking wallpaper ID against user's favorites in database
+- [ ] **FAVSTA-03**: Favorite status updates correctly after add/remove favorite operations
+- [ ] **FAVSTA-04**: Three-state heart indicator displays correctly (red=in default collection, blue=in custom collection, transparent=not favorited)
 
-### Storage IPC Layer
+### Favorites Page Pagination
 
-- [ ] **STIPC-01**: Modify `store.handler.ts` `store-get` handler to query SQLite instead of `store.get()`
-- [ ] **STIPC-02**: Modify `store.handler.ts` `store-set` handler to upsert SQLite rows instead of `store.set()` (including `processQueue()` trigger for appSettings)
-- [ ] **STIPC-03**: Modify `store.handler.ts` `store-delete` handler to delete from SQLite instead of `store.delete()`
-- [ ] **STIPC-04**: Modify `store.handler.ts` `store-clear` handler to clear all SQLite tables instead of `store.clear()`
+- [ ] **FAVPAG-01**: User can scroll to bottom to load more favorites (infinite scroll)
+- [ ] **FAVPAG-02**: Favorites are loaded in pages of 24 items via SQLite LIMIT/OFFSET
+- [ ] **FAVPAG-03**: Loading indicator shows while fetching more items
+- [ ] **FAVPAG-04**: "没有更多" message displays when all favorites are loaded
+- [ ] **FAVPAG-05**: Scroll position is preserved when navigating to wallpaper detail and back
 
-### Repository Layer
+### Sidebar Reactive Counts
 
-- [ ] **REPO-01**: `SettingsRepository` persists/reads `appSettings` via SQLite through generic store IPC — API unchanged
-- [ ] **REPO-02**: `WallpaperRepository.getQueryParams()`/`setQueryParams()` routes through SQLite — API unchanged
-- [ ] **REPO-03**: `DownloadRepository.get()`/`set()`/`add()`/`clear()` routes through SQLite with max-50 constraint enforced by SQL — API unchanged
-- [ ] **REPO-04**: `FavoritesRepository` redesign: replace full-blob read-modify-write with targeted SQL operations (INSERT/UPDATE/DELETE per mutation)
-- [ ] **REPO-05**: `FavoritesRepository` O(1) favorite existence check via SQL index instead of in-memory Set from full blob
+- [ ] **SIDECT-01**: Collection count in sidebar updates immediately after adding a favorite
+- [ ] **SIDECT-02**: Collection count in sidebar updates immediately after removing a favorite
+- [ ] **SIDECT-03**: "全部收藏" count shows unique wallpaper count (not total favorite records)
+- [ ] **SIDECT-04**: Each collection's count shows number of wallpapers in that collection
 
-### Cleanup
+### Data Structure Refactoring
 
-- [ ] **CLN-01**: Remove `electron-store` from `package.json` dependencies
-- [ ] **CLN-02**: Delete `electron/main/store.ts` (no remaining consumers)
-- [ ] **CLN-03**: Delete redundant `settings.handler.ts` and its IPC channels after confirming zero callers
-- [ ] **CLN-04**: Delete unused `src/utils/store.ts`
-- [ ] **CLN-05**: Remove legacy `electronClient.saveSettings()`/`loadSettings()` methods if confirmed unused
-- [ ] **CLN-06**: Remove unused store handler IPC channels after all consumers migrated
-
-### Verification & Testing
-
-- [ ] **VER-01**: All existing functionality continues to work after each phase (settings, download, search, favorites)
-- [ ] **VER-02**: Migration from existing electron-store data completes without data loss
-- [ ] **VER-03**: App launches and initializes database within normal startup time (< 500ms overhead)
-- [ ] **VER-04**: Favorites operations (add/remove/move/check) produce correct results via SQL queries
-- [ ] **VER-05**: Application compiles and bundles without electron-store dependency
+- [ ] **DATAREF-01**: Replace `TotalPageData` with `PageData` for online wallpaper page
+- [ ] **DATAREF-02**: Store maintains `currentPageData` + `pageCache` Map structure
+- [ ] **DATAREF-03**: Favorites page continues using `TotalPageData` for infinite scroll accumulation
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| ORM layer (Drizzle, Prisma) | 4-table schema doesn't justify ORM overhead. Repository layer already provides type-safe access. |
-| Async SQLite driver | Main process needs synchronous access (download queue). `node:sqlite` is sync-first. |
-| Dual-write to electron-store + SQLite | Adds complexity without safety benefit. One-time migration (idempotent) with cold backup is sufficient. |
-| Schema-per-domain databases | Single `wallhaven-data.db` file. WAL mode handles concurrent access. One file simplifies backup. |
-| Full normalization of wallpaper_data | Wallhaven API controls schema. Keep as JSON snapshot column, deserialize on read. |
-| FTS5 full-text search | Valuable but not needed for migration. Trivial to add later with no dependency changes. |
-| Data export/import feature | Enabled by SQLite but out of scope for this migration milestone. |
+| URL parameter sync | Deferred to future milestone — complexity of browser history + search state |
+| Page number input box | Click navigation sufficient for limited page counts |
+| Virtual pagination (frontend truncation) | Wallhaven API returns only 24 items per request — cannot paginate frontend |
+| Dual mode (infinite scroll + pagination toggle) | Interaction logic conflict, doubles state management complexity |
+| Favorites page traditional pagination | Infinite scroll is better suited for local data browsing |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DBINFRA-01 | 41 | Pending |
-| DBINFRA-02 | 41 | Complete |
-| DBINFRA-03 | 41 | Pending |
-| DBINFRA-04 | 41 | Pending |
-| DBINFRA-05 | 44 | Pending |
-| DBINFRA-06 | 44 | Pending |
-| DBINFRA-07 | 44 | Pending |
-| MPDIR-01 | 42 | Pending |
-| MPDIR-02 | 42 | Pending |
-| STIPC-01 | 42 | Pending |
-| STIPC-02 | 42 | Pending |
-| STIPC-03 | 42 | Pending |
-| STIPC-04 | 42 | Pending |
-| REPO-01 | 42 | Pending |
-| REPO-02 | 42 | Pending |
-| REPO-03 | 42 | Pending |
-| REPO-04 | 43 | Pending |
-| REPO-05 | 43 | Pending |
-| CLN-01 | 45 | Pending |
-| CLN-02 | 45 | Pending |
-| CLN-03 | 45 | Pending |
-| CLN-04 | 45 | Pending |
-| CLN-05 | 45 | Pending |
-| CLN-06 | 45 | Pending |
-| VER-01 | 45 | Pending |
-| VER-02 | 44 | Pending |
-| VER-03 | 45 | Pending |
-| VER-04 | 43 | Pending |
-| VER-05 | 45 | Pending |
+| ONLPAG-01 | TBD | Pending |
+| ONLPAG-02 | TBD | Pending |
+| ONLPAG-03 | TBD | Pending |
+| ONLPAG-04 | TBD | Pending |
+| ONLPAG-05 | TBD | Pending |
+| ONLPAG-06 | TBD | Pending |
+| ONLPAG-07 | TBD | Pending |
+| ONLPAG-08 | TBD | Pending |
+| FAVSTA-01 | TBD | Pending |
+| FAVSTA-02 | TBD | Pending |
+| FAVSTA-03 | TBD | Pending |
+| FAVSTA-04 | TBD | Pending |
+| FAVPAG-01 | TBD | Pending |
+| FAVPAG-02 | TBD | Pending |
+| FAVPAG-03 | TBD | Pending |
+| FAVPAG-04 | TBD | Pending |
+| FAVPAG-05 | TBD | Pending |
+| SIDECT-01 | TBD | Pending |
+| SIDECT-02 | TBD | Pending |
+| SIDECT-03 | TBD | Pending |
+| SIDECT-04 | TBD | Pending |
+| DATAREF-01 | TBD | Pending |
+| DATAREF-02 | TBD | Pending |
+| DATAREF-03 | TBD | Pending |
 
 **Coverage:**
-- v5.0 requirements: 29 total
-- Mapped to phases: 29/29 ✓
+- v6.0 requirements: 24 total
+- Mapped to phases: 0/24 ⚠️
 
 ---
-*Requirements defined: 2026-05-03*
+*Requirements defined: 2026-05-04*
