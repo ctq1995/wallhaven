@@ -161,6 +161,7 @@ export function useFavorites(): UseFavoritesReturn {
   ): Promise<boolean> => {
     const result = await favoritesService.add(wallpaperId, collectionId, wallpaperData)
     if (result.success) {
+      await store.loadFavorites()
       await loadCounts()
       showSuccess('已添加到收藏')
       return true
@@ -172,6 +173,7 @@ export function useFavorites(): UseFavoritesReturn {
   const remove = async (wallpaperId: string, collectionId: string): Promise<boolean> => {
     const result = await favoritesService.remove(wallpaperId, collectionId)
     if (result.success) {
+      await store.loadFavorites()
       await loadCounts()
       showSuccess('已从收藏移除')
       return true
@@ -187,6 +189,7 @@ export function useFavorites(): UseFavoritesReturn {
   ): Promise<boolean> => {
     const result = await favoritesService.move(wallpaperId, fromCollectionId, toCollectionId)
     if (result.success) {
+      await store.loadFavorites()
       await loadCounts()
       showSuccess('已移动到其他收藏夹')
       return true
