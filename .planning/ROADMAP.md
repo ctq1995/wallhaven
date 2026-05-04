@@ -45,7 +45,7 @@
 <summary>🚧 v6.0 传统分页重构 (Phases 46-50) — IN PROGRESS</summary>
 
 - [x] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods ✅ 2026-05-04
-- [ ] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection
+- [ ] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection (1 plan, 9 tasks) ⏳ Planning complete
 - [ ] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts
 - [ ] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration
 - [ ] **Phase 50: Favorites Page** — Infinite scroll, sidebar counts
@@ -74,7 +74,7 @@
   1. FavoritesService.getPaginatedFavorites(24, 0) returns first 24 items with correct total count
   2. WallpaperService.search() returns items with correct is_favorite values matching database state
   3. Total count query returns unique wallpaper count (not favorite record count)
-**Plans**: TBD
+**Plans**: 47-PLAN.md (Wave 1, 9 tasks) — Ready to execute
 
 ### Phase 48: Composable & Store Layer
 **Goal**: 实现 Composable 层的分页状态管理、缓存策略和响应式计数
@@ -116,7 +116,7 @@
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 46. Infrastructure | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 47. Repository & Service Layer | v6.0 | 0/TBD | Ready to plan | - |
+| 47. Repository & Service Layer | v6.0 | 1/1 | Ready to execute | - |
 | 48. Composable & Store Layer | v6.0 | 0/TBD | Waiting | - |
 | 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Waiting | - |
 | 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
