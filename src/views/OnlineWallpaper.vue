@@ -142,7 +142,6 @@ const {
   fetch: fetchWallpapers,
   goToPage,
   saveCustomParams,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used in Plan 49-02
   updateItemFavoriteStatus,
 } = useWallpaperList()
 const { addTask, startDownload, isDownloading } = useDownload()
@@ -240,6 +239,33 @@ watch(
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
+)
+
+// 监听 favorites 变化，同步更新 currentPageData 中的 is_favorite
+watch(
+  () => favorites.value,
+  (newFavorites) => {
+    // 仅在当前页面有数据时处理
+    if (currentPageData.value.data.length === 0) return
+
+    // 遍历当前页的壁纸，检查收藏状态是否需要更新
+    for (const item of currentPageData.value.data) {
+      const favRecords = newFavorites.filter((f) => f.wallpaperId === item.id)
+      let newStatus: 0 | 1 | 2 = 0
+
+      if (favRecords.length > 0) {
+        const defaultColId = defaultCollectionId.value
+        const inDefault = defaultColId ? favRecords.some((f) => f.collectionId === defaultColId) : false
+        newStatus = inDefault ? 1 : 2
+      }
+
+      // 仅在状态变化时更新
+      if (item.is_favorite !== newStatus) {
+        updateItemFavoriteStatus(item.id, newStatus)
+      }
+    }
+  },
+  { deep: true }
 )
 
 /**
@@ -493,10 +519,14 @@ const handleToggleFavorite = async (item: WallpaperItem): Promise<void> => {
   if (isInCollection(item.id, defaultCollection.id)) {
     // 已在默认收藏夹中，移除
     await removeFavorite(item.id, defaultCollection.id)
+    // 更新 is_favorite 为 0（未收藏）
+    updateItemFavoriteStatus(item.id, 0)
     showSuccess(`已从"${defaultCollection.name}"移除`)
   } else {
     // 不在默认收藏夹中，添加
     await addFavorite(item.id, defaultCollection.id, item)
+    // 更新 is_favorite 为 1（收藏到默认收藏夹）
+    updateItemFavoriteStatus(item.id, 1)
     showSuccess(`已添加到"${defaultCollection.name}"`)
   }
 }
