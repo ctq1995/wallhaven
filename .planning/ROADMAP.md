@@ -48,7 +48,7 @@
 - [x] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection ✅ 2026-05-04
 - [x] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts ✅ 2026-05-04
 - [x] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration ✅ 2026-05-04
-- [ ] **Phase 50: Favorites Page** — Infinite scroll, sidebar counts
+- [ ] **Phase 50: Favorites Page Pagination** — 传统分页 UI，复用 PaginationBar 组件
 
 </details>
 
@@ -100,15 +100,16 @@
   - [x] 49-01-PLAN.md — PaginationBar 组件与分页导航 ✅
   - [x] 49-02-PLAN.md — 收藏状态同步 ✅
 
-### Phase 50: Favorites Page - Infinite Scroll
-**Goal**: 实现收藏页面的无限滚动分页和侧边栏实时计数
-**Depends on**: Phase 48, Phase 49 (can run in parallel with 49)
-**Requirements**: FAVPAG-01 (verified), FAVPAG-03 (verified), FAVPAG-04 (verified), FAVPAG-05 (verified)
+### Phase 50: Favorites Page Pagination
+**Goal**: 实现收藏页面的传统分页 UI，复用 PaginationBar 组件，与在线壁纸页面保持一致
+**Depends on**: Phase 48, Phase 49
+**Requirements**: FAVPAG-01 (updated), FAVPAG-03, FAVPAG-04, FAVPAG-05
 **Success Criteria** (what must be TRUE):
-  1. Scrolling to bottom loads more favorites automatically with loading indicator
-  2. "没有更多" displays when all items loaded (hasMore === false)
-  3. Sidebar counts update immediately after any favorite operation
-  4. Navigating to detail page and back preserves scroll position
+  1. Pagination bar displays correctly with page numbers, ellipsis, and total count
+  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page
+  3. Switching collection filter resets to page 1 and clears page cache
+  4. Unfavoriting removes item from current page and updates counts
+  5. Navigating to detail page and back preserves scroll position
 **Plans**: TBD
 
 ---
