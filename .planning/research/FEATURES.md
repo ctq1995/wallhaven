@@ -1,205 +1,269 @@
-# Feature Research: electron-store to SQLite Migration
+# Feature Research: 传统分页重构
 
-**Domain:** Electron desktop wallpaper browser — migrating persistent storage from JSON-file (electron-store) to SQLite for data integrity, partial updates, and query capability
-**Researched:** 2026-05-03
-**Confidence:** HIGH (based on codebase analysis + established SQLite migration patterns)
+**Domain:** Wallhaven 壁纸浏览器 — 将在线壁纸页面从无限滚动改为传统分页条，我的收藏页面实现无限滚动分页
+**Researched:** 2026-05-04
+**Confidence:** HIGH (基于现有代码库分析 + 分页 UI 模式研究)
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = migration feels incomplete or causes data loss.
+分页功能的基础特性，缺失会让用户感到困惑或体验受损。
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Data migration with zero loss | Existing app data (settings, search params, download history, favorites) must survive the migration intact. Users expect their configuration and collections to be preserved across the update. | MEDIUM | Transactional migration script handles all 4 domains in a single atomic operation. Idempotent — safe to re-run if interrupted. |
-| App startup without regression | App launches normally, reads from SQLite instead of electron-store. No visible difference to the user. All existing functionality works. | LOW | Repository layer swaps backend. IPC handlers route through SQLite. The View/Composable/Service layers are unchanged. |
-| Download queue still reads settings | The download queue in the main process reads `maxConcurrentDownloads` from storage on every `processQueue()` call. This must continue to work synchronously. | LOW | `node:sqlite` provides synchronous `getDatabase().prepare().get()` — direct replacement for `store.get('appSettings')`. |
-| Favorites CRUD operations work | Create, rename, delete collections. Add, remove, move favorites. Check if a wallpaper is favorited. All continue to work through the repository layer. | MEDIUM | The favorites repository does full read-modify-write on a JSON blob today. SQLite replaces this with targeted INSERT/UPDATE/DELETE queries. The repository interface stays the same. |
-| Download history add/remove/clear | Adding completed downloads, removing individual entries, clearing all history. | LOW | Max-50 constraint enforced by SQL query (`ORDER BY time DESC LIMIT 50`). Repository interface unchanged. |
-| Settings read/write | Reading and saving all 4 settings fields (downloadPath, maxConcurrentDownloads, apiKey, wallpaperFit). | LOW | Settings stored as individual key-value rows for atomic access. Repository returns the full `AppSettings` object from a single query. |
+| 页码导航 | 用户需要快速跳转到任意页面，而非逐页加载。传统分页条提供明确的页码指示和跳转能力。 | MEDIUM | 需要新建 Pagination 组件，处理页码计算、省略号显示、边界情况 |
+| 当前页高亮 | 用户需要知道自己在哪一页，视觉反馈是基本交互需求。 | LOW | CSS 类切换，已有类似的选中状态样式模式可复用 |
+| 上一页/下一页按钮 | 用户期望顺序翻页，这是最基础的导航方式。 | LOW | 简单的条件禁用 + 点击处理 |
+| 总条目数显示 | 用户想知道搜索结果有多少张壁纸，了解数据规模。 | LOW | 从 API meta.total 获取，UI 显示 "共 X 张" |
+| 每页固定数量 | Wallhaven API 固定 24 张/页，用户预期一致的展示数量。 | LOW | 无需实现，API 已固定 |
+| 页面切换时滚动到顶部 | 用户切换页面后期望从新页面的顶部开始浏览。 | LOW | `window.scrollTo(0, 0)` 简单实现 |
 
 ### Differentiators (Competitive Advantage)
 
-Features enabled by SQLite that were impractical with electron-store's JSON-blob pattern.
+由传统分页带来的改进特性，超越基础需求。
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Partial settings read in main process | The download queue reads only `maxConcurrentDownloads` from storage. With electron-store this reads the entire `appSettings` blob and extracts one field. With SQLite, it reads one row: `SELECT value FROM settings WHERE key = 'maxConcurrentDownloads'`. | LOW | Already implemented as a prepared statement. Reduces data transfer and JSON parsing for the hot path (every `processQueue()` call). |
-| O(1) favorites lookup | "Is this wallpaper favorited?" currently reads the entire `FavoritesData` blob (potentially hundreds of items), then does an array `.some()`. With SQLite: `SELECT 1 FROM favorites WHERE wallpaper_id = ? LIMIT 1` — index-only lookup. | LOW | Index on `favorites(wallpaper_id)`. Direct replacement for O(N) array scan. |
-| Targeted collection queries | "Get all collections for wallpaper X" currently reads the full blob and filters in JavaScript. SQLite: `SELECT c.* FROM collections c JOIN favorites f ON c.id = f.collection_id WHERE f.wallpaper_id = ?`. | LOW | JOIN query offloads filtering to the database engine. No data transfer overhead for irrelevant rows. |
-| Atomic delete with cascade | Delete a collection and all its favorites in one operation. Currently: read blob, filter array, write blob. With SQLite: `DELETE FROM collections WHERE id = ?` (CASCADE deletes favorites). No read-modify-write race. | LOW | Foreign key constraint with `ON DELETE CASCADE`. Eliminates the race condition where two operations could overwrite each other's changes. |
-| Transactional multi-write operations | Operations that modify multiple rows (e.g., moving a favorite between collections) are wrapped in a SQLite transaction. If the app crashes mid-operation, the database is left in its previous consistent state. | MEDIUM | SQLite's WAL journaling and `BEGIN IMMEDIATE/COMMIT` transactions ensure crash safety. This is the primary motivation for the migration. |
-| Future: full-text search | SQLite's FTS5 extension enables full-text search across collection names, wallpaper tags, or download history filenames. | LOW | Not needed now but trivial to add later. Requires no additional dependencies. |
-| Future: data export/import | SQLite's `VACUUM INTO 'backup.db'` enables one-command full backup. JSON export for user-facing export feature. | LOW | Atomic, consistent backup. No risk of backing up a partially-written state. |
+| 内存页面缓存 | 已访问页面的数据缓存在内存中，切换回已加载页面无需重新请求 API。用户感知为"瞬间加载"。 | MEDIUM | 用 Map<number, PageData> 替代 TotalPageData sections 数组。需要缓存失效策略（搜索条件变化时清空） |
+| 收藏状态数据库计算 | 壁纸是否收藏由 SQLite 查询返回（is_favorite 字段），替代前端 Set 计算。减少前端计算负担，数据源一致。 | MEDIUM | 需要在 favorites 表上创建索引，API 返回数据与收藏状态 LEFT JOIN。需修改现有的 WallpaperService/WallpaperRepository |
+| URL 参数可选同步 | 用户可分享带页码的 URL，便于书签和分享。但本 milestone 明确不同步 URL，后续可按需添加。 | LOW | 当前 milestone 不实现，但架构上预留扩展点 |
+| 分页条响应式设计 | 小屏幕下显示省略页码，大屏幕显示完整页码列表。 | LOW | 已有响应式设计模式，复用现有 CSS 变量和媒体查询 |
+| 键盘快捷键导航 | 左右方向键翻页，提升效率用户的使用体验。 | LOW | 监听 keydown 事件，调用翻页方法 |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems for this migration.
+看似合理但可能带来问题的功能。
 
 | Anti-Feature | Why Requested | Why Problematic | Alternative |
 |--------------|---------------|-----------------|-------------|
-| ORM layer (Drizzle, Prisma, TypeORM) | ORMs provide type-safe queries and migration tooling. Drizzle is popular in the 2025-2026 Electron ecosystem. | Adds 2-5MB to bundle, introduces build-time schema generation, complicates the simple 4-table schema. The existing repository layer already provides type-safe data access. An ORM adds abstraction without value for this scale. | Raw `node:sqlite` with typed repository methods. Each table gets an `interface` and the repository calls `getDatabase().prepare()` with those types. |
-| Async SQLite driver (`sqlite3`) | Some developers prefer async APIs for consistency with the existing IPC-based pattern. | The main process needs synchronous access (download queue reading settings). `node:sqlite` is sync-first. Mixing sync and async in one process is confusing. | `node:sqlite` (synchronous, built-in). Repository calls are already awaited, so sync calls complete in the microtask queue without blocking the renderer. |
-| Dual-write to electron-store + SQLite | "Keep writing to both during transition for safety." | Doubles write time, doubles code complexity, introduces sync bugs. Migration is a one-time idempotent script, not a permanent dual-write. | Run migration once on startup. After success, SQLite is the single source of truth. Keep electron-store file as cold backup (not read, not written). |
-| Schema-per-domain databases | Separate `.db` files for settings, favorites, and downloads to reduce coupling. | Multiple database connections increase memory and complexity. All 4 domains fit comfortably in one file (< 1MB expected). One file simplifies backup, migration, and connection management. | Single `wallhaven-data.db` file. WAL mode ensures concurrent reads don't block writes. |
-| Normalize wallpaper_data into columns | Full normalization of the `wallpaperData` JSON blob (12+ fields) into individual columns. | Wallpaper data comes from an external API. Its schema is controlled by Wallhaven, not us. Normalizing adds maintenance burden when the API changes. The snapshot pattern is correct for offline favorites viewing. | Store `wallpaper_data` as a JSON text column. The repository deserializes it into `WallpaperItem` on read. |
+| 无限滚动 + 传统分页并存 | "让用户选择自己喜欢的方式" | 两种模式的交互逻辑冲突。无限滚动依赖 scroll event 触发加载，传统分页期望用户主动翻页。并存需要双倍状态管理，增加复杂度和 bug 风险。 | 本次 milestone 完全移除无限滚动，替换为传统分页 |
+| URL 参数双向绑定 | "刷新页面保持当前页码" | Wallhaven API 返回的是当前页数据，URL 同步需要额外处理前进/后退按钮、搜索条件变化等边界情况。增加测试负担。 | 本 milestone 不同步 URL，数据存储在内存状态中 |
+| 虚拟分页（前端截断） | "减少 API 请求" | Wallhaven API 每次返回 24 张，前端无法获取更多数据。虚拟分页需要一次性请求大量数据，增加首屏加载时间和内存占用。 | 遵循 API 设计，每页一个请求 |
+| 页码输入框跳转 | "快速跳转到第 N 页" | 对于总页数有限（通常 < 100 页）的场景，点击页码或使用省略号跳转足够。输入框增加额外的 UI 复杂度和验证逻辑。 | 显示页码范围 1-5 页，超过时使用省略号和首尾页链接 |
 
 ## Feature Dependencies
 
 ```
-Migration Script
-    ├──requires──> Database Connection (node:sqlite init + WAL mode)
-    ├──requires──> Schema Definition (CREATE TABLE IF NOT EXISTS for all tables)
-    ├──requires──> electron-store Data Access (read old data during migration)
-    └──requires──> Migration Tracking (_migrated_from_store key in settings table)
+在线壁纸页面传统分页
+    ├──requires──> Pagination 组件 (新建)
+    │       ├──requires──> 页码计算逻辑 (currentPage, totalPage, displayRange)
+    │       └──requires──> 样式定义 (与现有 button/checkbox 风格一致)
+    ├──requires──> PageData 替换 TotalPageData 数据结构
+    │       ├──requires──> WallpaperStore 状态重构
+    │       └──requires──> useWallpaperList composable 接口变更
+    ├──requires──> 页面缓存 Map<number, PageData>
+    │       └──requires──> 缓存失效策略 (搜索条件变化)
+    └──requires──> 移除无限滚动逻辑
+            └──requires──> 移除 scroll event listener
 
-Settings Domain
-    ├──requires──> settings table with key-value rows
-    └──requires──> Repository updated to query settings table instead of IPC store
+我的收藏页面无限滚动
+    ├──requires──> SQLite LIMIT/OFFSET 分页查询
+    │       ├──requires──> favorites 表索引优化
+    │       └──requires──> 分页查询 Repository 方法
+    ├──requires──> IntersectionObserver 或 scroll event 触发加载
+    │       └──requires──> 复用现有 throttle 模式
+    └──requires──> 侧边栏收藏数目响应式更新
+            └──requires──> 已有 favorites composable 的 count computed
 
-Search Params Domain
-    └──requires──> search_params table (single JSON row)
-
-Download History Domain
-    ├──requires──> download_history table with indexed columns
-    └──requires──> Max-50 enforcement via SQL ORDER BY + LIMIT
-
-Favorites Domain
-    ├──requires──> collections table
-    ├──requires──> favorites table with FK to collections
-    └──requires──> Indexes on (wallpaper_id) and (collection_id)
-
-Main Process Settings Direct Read
-    ├──requires──> Database module export for main process handlers
-    └──requires──> Prepared statement for synchronous settings key lookup
-
-Cleanup
-    └──requires──> All 4 domains migrated and verified → Remove electron-store dependency
+收藏状态数据库计算
+    ├──requires──> SQLite 查询返回 is_favorite 字段
+    │       ├──requires──> LEFT JOIN favorites 表
+    │       └──requires──> wallpaper_id 索引
+    ├──requires──> WallpaperService 接口变更
+    │       └──requires──> 新增 is_favorite 参数传递
+    └──requires──> 前端 favoriteIds Set 计算逻辑移除
+            └──requires──> WallpaperList 组件接收 is_favorite 字段
 ```
 
 ### Dependency Notes
 
-- **Migration requires all tables exist before data transfer** — Tables must be created in the correct order (collections before favorites due to FK constraint). The migration script creates tables first, then transfers data within a transaction.
-- **Main process settings read depends on DB module** — The `download-queue.ts` and `download.handler.ts` currently import `store` from `../../store`. They must import `getDatabase` from the database module instead. The DB module must provide a synchronous API.
-- **Favorites FK dependency** — The `favorites` table's `collection_id` column references `collections(id)`. Collection inserts must happen before favorite inserts during migration.
-- **electron-store removal depends on all domains migrated** — The `electron-store` package cannot be removed until all 4 repository classes have been updated and the migration has been verified on existing user data.
+- **Pagination 组件是独立模块** — 不依赖现有组件，可独立开发测试。样式参考现有 `button` 和 `checkbox` 组件。
+- **PageData 替换 TotalPageData 是破坏性变更** — 现有 `WallpaperList` 组件接收 `TotalPageData`，需要修改为接收单页 `PageData`。sections 数组概念移除。
+- **页面缓存与缓存失效** — 搜索条件变化（`queryParams` 变化）时需要清空缓存。使用 Vue 的 `watch` 监听 `queryParams` 变化。
+- **收藏状态数据库计算与前端计算互斥** — 两种方式同时存在会导致状态不一致。数据库计算后，前端的 `favoriteIds` Set 和 `wallpaperCollectionMap` 逻辑可移除（仅用于在线壁纸页面）。
+- **我的收藏页面分页与现有全量显示互斥** — 当前 `FavoritesPage` 一次性加载全部收藏并使用 `filteredFavorites` computed 过滤。分页后需要改为数据库层面的 LIMIT/OFFSET 查询。
 
 ## MVP Definition
 
-### Launch With (v1 — Initial Migration)
+### Launch With (v6.0 — 传统分页重构)
 
-Minimum viable migration — all 4 data domains work with SQLite, no data loss.
+最小可行产品 — 传统分页条可用，收藏状态正确显示。
 
-- [ ] **Database initialization** — `DatabaseSync` connection established on app startup (no npm dependency — `node:sqlite` is built-in), WAL mode enabled (default in SQLite 3.51+), `enableForeignKeyConstraints: true`
-- [ ] **Schema creation** — All tables (`settings`, `search_params`, `download_history`, `collections`, `favorites`) created via `CREATE TABLE IF NOT EXISTS`
-- [ ] **Migration script** — Idempotent one-time migration from electron-store JSON to SQLite. Reads all 4 keys, transforms data, inserts into SQLite within a transaction. Records migration in `_migrated_from_store` settings key.
-- [ ] **Settings repository update** — `settingsRepository.get/set/delete()` reads from SQLite instead of IPC `storeGet/Set`. Backward-compatible return types.
-- [ ] **Download repository update** — `downloadRepository.get/set/add/remove/clear()` reads from SQLite. `SELECT ... ORDER BY time DESC LIMIT 50` handles max-size enforcement.
-- [ ] **Wallpaper repository update** — `wallpaperRepository.getQueryParams/setQueryParams/deleteQueryParams()` reads from SQLite. Single-row table with JSON column.
-- [ ] **Favorites repository update** — `favoritesRepository` CRUD operations use SQL queries instead of read-modify-write on JSON blob. Collections and favorites in separate tables with FK constraint.
-- [ ] **Main process settings read** — `download-queue.ts` and `download.handler.ts` read settings via SQLite prepared statement instead of `store.get('appSettings')`.
-- [ ] **IPC handler simplification** — `store.handler.ts` no longer needs to handle `store-get`/`store-set`/`store-delete`/`store-clear` for the 4 migrated domains.
+- [ ] **Pagination 组件** — 显示页码列表、上一页/下一页按钮、当前页高亮、总页数显示。处理省略号逻辑（当前页 ± 2 页范围）。
+- [ ] **OnlineWallpaper 页面集成** — 移除无限滚动 scroll listener，集成 Pagination 组件，点击页码触发数据加载。
+- [ ] **PageData 数据结构** — 替换 `TotalPageData`，Store 仅存储当前页数据和缓存 Map。移除 `sections` 数组概念。
+- [ ] **页面内存缓存** — `Map<number, PageData>` 缓存已加载页面。切换到已缓存页面时直接使用缓存数据。
+- [ ] **总条目数显示** — 从 `meta.total` 获取并显示 "共 X 张"。位置在分页条左侧或 SearchBar 区域。
+- [ ] **收藏状态数据库计算** — `is_favorite` 字段由 SQLite 查询返回。移除前端 `favoriteIds` Set 计算（仅针对在线壁纸页面）。
+- [ ] **我的收藏页面无限滚动** — SQLite LIMIT/OFFSET 分页查询，滚动到底部加载更多。侧边栏数目响应式更新。
 
-### Add After Validation (v1.x)
+### Add After Validation (v6.x)
 
-Features to add once core migration is verified.
+验证核心功能后的增强特性。
 
-- [ ] **Redundant settings.json cleanup** — Remove `settings.handler.ts` IPC handlers and the legacy `{userData}/settings.json` file. This is dead code that nobody calls through the current app flow.
-- [ ] **electron-store dependency removal** — Remove `electron-store` from `package.json`, delete `electron/main/store.ts`, remove `store` imports. Only after confirming no code path still reads from electron-store.
-- [ ] **Preload cleanup** — Remove `storeGet`/`storeSet`/`storeDelete`/`storeClear` from preload context bridge if no IPC handlers remain. Reduces preload surface area.
+- [ ] **键盘快捷键导航** — 左右方向键翻页。需要在 Pagination 组件或页面级别监听 keydown 事件。
+- [ ] **分页条可配置** — 每页显示数量可配置（需要 API 支持，当前 Wallhaven API 固定 24 张/页，暂不可配置）。
+- [ ] **页面预加载** — 鼠标悬停页码时预加载该页数据。需要谨慎处理，避免过多请求。
 
-### Future Consideration (v2+)
+### Future Consideration (v7+)
 
-Features to defer until data migration is stable.
+后续里程碑考虑的功能。
 
-- [ ] **Settings backup/restore** — Export settings to JSON file for user backup. Low priority since SQLite is already crash-safe with WAL.
-- [ ] **Favorites full-text search** — Add FTS5 virtual table for searching collection names. Not needed until users have hundreds of favorites.
-- [ ] **Data integrity verification** — `PRAGMA integrity_check` on startup to detect corruption. Only needed if users report data issues.
+- [ ] **URL 参数同步** — 页码、搜索条件同步到 URL，支持分享和书签。需要处理前进/后退按钮。
+- [ ] **高级分页模式** — 跳转到第一页/最后一页按钮，页码输入框直接跳转。
+- [ ] **分页历史记录** — 记录用户浏览过的页面，便于回溯。
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Data migration with zero loss | HIGH | MEDIUM (transactional script, 4 domains) | P0 |
-| App startup without regression | HIGH | LOW (Repository swap at import level) | P0 |
-| Settings read/write | HIGH | LOW (4 key-value rows with repository adapter) | P0 |
-| Download queue reads settings | HIGH | LOW (synchronous prepared statement) | P0 |
-| Favorites CRUD | MEDIUM | MEDIUM (collections + favorites tables, FK) | P0 |
-| Download history | MEDIUM | LOW (single table with ORDER BY + LIMIT) | P0 |
-| Search params | LOW | LOW (single JSON row) | P0 |
-| Partial settings read (main process) | LOW | LOW (prepared statement by key) | P1 |
-| O(1) favorites lookup | LOW | LOW (index on wallpaper_id) | P1 |
-| Atomic collection delete with cascade | MEDIUM | LOW (ON DELETE CASCADE) | P1 |
-| Redundant settings.json removal | LOW | LOW (dead code deletion) | P2 |
-| electron-store dependency removal | LOW | LOW (package.json + import cleanup) | P2 |
-| Preload cleanup | LOW | LOW (context bridge removal) | P2 |
+| Pagination 组件 | HIGH | MEDIUM (新组件 + 样式) | P0 |
+| OnlineWallpaper 集成 | HIGH | MEDIUM (移除无限滚动 + 接入分页) | P0 |
+| PageData 替换 TotalPageData | HIGH | MEDIUM (Store + Composable 重构) | P0 |
+| 页面内存缓存 | MEDIUM | LOW (Map 数据结构 + 缓存失效) | P0 |
+| 总条目数显示 | LOW | LOW (UI 显示) | P0 |
+| 收藏状态数据库计算 | MEDIUM | MEDIUM (查询修改 + 接口变更) | P0 |
+| 我的收藏无限滚动 | MEDIUM | MEDIUM (SQLite 分页 + UI 更新) | P0 |
+| 键盘快捷键导航 | LOW | LOW (event listener) | P1 |
+| 页面预加载 | LOW | MEDIUM (预加载逻辑 + 请求控制) | P2 |
+| URL 参数同步 | MEDIUM | HIGH (路由 + 状态同步) | P2 |
 
 **Priority key:**
-- P0: Must have for launch (user data safety, no regression)
-- P1: Should have for this milestone (enables SQLite's advantages)
-- P2: Nice to have, cleanup after verification
+- P0: Must have for launch (核心功能，用户可见变化)
+- P1: Should have for this milestone (提升体验)
+- P2: Nice to have, defer to next milestone
 
-## Data Migration Schema Mapping
+## User Experience Considerations
+
+### 在线壁纸页面
+
+**Before (无限滚动):**
+```
+用户搜索 → 首屏 24 张 → 滚动到底部 → 自动加载下一页 → 数据累积显示
+```
+
+**After (传统分页):**
+```
+用户搜索 → 首屏 24 张 + 分页条 → 点击页码 → 切换到新页面（滚动到顶部）→ 显示新数据
+```
+
+**用户体验变化:**
+- ✅ 用户明确知道总页数和当前位置
+- ✅ 可以快速跳转到任意页面
+- ✅ 页面切换时滚动到顶部，不会迷失位置
+- ⚠️ 不再有"无尽浏览"的沉浸感（但这是明确的产品决策）
+
+### 我的收藏页面
+
+**Before (全量显示):**
+```
+进入页面 → 加载全部收藏 → computed 过滤 → 全部显示
+```
+
+**After (无限滚动分页):**
+```
+进入页面 → 加载首批 24 张 → 滚动到底部 → 加载下一批 → 累积显示
+```
+
+**用户体验变化:**
+- ✅ 大量收藏时首屏加载更快
+- ✅ 内存占用更可控（不再一次性加载全部数据）
+- ⚠️ 需要滚动才能看到全部收藏（但这是标准分页体验）
+
+### 分页条设计
 
 ```
-electron-store (wallhaven-data.json)          SQLite (wallhaven-data.db)
-========================================      ====================
+┌─────────────────────────────────────────────────────────────┐
+│  共 288 张                                                    │
+│                                                              │
+│  [上一页]  [1]  [2]  [3]  ...  [10]  [11]  [12]  [下一页]      │
+│            ^^^                                              │
+│         当前页                                               │
+└─────────────────────────────────────────────────────────────┘
+```
 
-appSettings: {                                settings table (key-value rows):
-  downloadPath           ──────────────►        key='downloadPath' → value
-  maxConcurrentDownloads ──────────────►        key='maxConcurrentDownloads' → value
-  apiKey                 ──────────────►        key='apiKey' → value
-  wallpaperFit           ──────────────►        key='wallpaperFit' → value
+**页码显示规则:**
+- 总页数 ≤ 7: 显示全部页码
+- 总页数 > 7: 显示首页 + 当前页 ± 2 + 尾页，中间用省略号
+- 示例 (当前第 5 页，共 20 页): `1 ... 3 4 [5] 6 7 ... 20`
 
-wallpaperQueryParams: {                       search_params table (singleton row):
-  selector, keyword, etc.  ──────────────►      id=1, params=JSON({...})
+## Data Structure Changes
 
-downloadFinishedList: [                      download_history table (one row per item):
-  { id, url, filename, path,                   id, wallpaper_id, url, filename,
-    resolution, size, time, ... }               path, resolution, size, time
-  ]                                             Note: state/progress/offset/speed/retry*
-                                                only relevant for active downloads.
+### 现有数据结构
 
-favoritesData: {                              collections table:
-  collections: [                                id, name, is_default, created_at, updated_at
-    { id, name, isDefault,                    favorites table:
-      createdAt, updatedAt },                   wallpaper_id, collection_id, added_at,
-    ...                                         wallpaper_data (JSON snapshot)
-  ]                                             FK: collection_id → collections(id)
-  favorites: [                                  ON DELETE CASCADE
-    { wallpaperId, collectionId,              PK: (wallpaper_id, collection_id)
-      addedAt, wallpaperData },               Indexes:
-    ...                                         idx_favorites_wallpaper(wallpaper_id)
-  }                                             idx_favorites_collection(collection_id)
+```typescript
+// 当前: TotalPageData (用于无限滚动累积)
+interface TotalPageData {
+  totalPage: number
+  currentPage: number
+  sections: PageData[]  // 累积的页面数据
 }
+
+interface PageData {
+  totalPage: number
+  currentPage: number
+  data: WallpaperItem[]
+}
+```
+
+### 新数据结构
+
+```typescript
+// 新增: PageCache (内存缓存)
+type PageCache = Map<number, PageData>
+
+// Store 状态
+interface WallpaperStoreState {
+  currentPageData: PageData | null       // 当前页数据
+  pageCache: PageCache                   // 已加载页面缓存
+  totalItems: number                     // 总条目数 (从 meta.total 获取)
+  totalPage: number                      // 总页数
+  currentPage: number                    // 当前页码
+  loading: boolean
+  error: boolean
+  queryParams: GetParams | null          // 搜索条件变化时清空缓存
+}
+```
+
+### 收藏状态查询变更
+
+```typescript
+// 当前: 前端计算收藏状态
+const favoriteIds = computed(() => new Set(favorites.value.map(f => f.wallpaperId)))
+
+// 新增: 数据库查询返回 is_favorite
+interface WallpaperItemWithFavorite extends WallpaperItem {
+  is_favorite: boolean
+}
+
+// SQLite 查询 (伪代码)
+SELECT
+  w.*,
+  CASE WHEN f.wallpaper_id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+FROM wallhaven_response w
+LEFT JOIN favorites f ON w.id = f.wallpaper_id
 ```
 
 ## Sources
 
-- Existing codebase analysis:
-  - `electron/main/store.ts` — electron-store instance with defaults
-  - `electron/main/ipc/handlers/store.handler.ts` — IPC bridge to electron-store
-  - `electron/main/ipc/handlers/settings.handler.ts` — redundant legacy settings.json persistence (dead code)
-  - `electron/main/ipc/handlers/download.handler.ts` — direct `store.get('appSettings')` at line 1005
-  - `electron/main/ipc/handlers/download-queue.ts` — direct `store.get('appSettings')` at line 94
-  - `src/repositories/settings.repository.ts` — IPC-based data access pattern
-  - `src/repositories/download.repository.ts` — IPC-based data access with read-modify-write
-  - `src/repositories/wallpaper.repository.ts` — IPC-based data access (simple)
-  - `src/repositories/favorites.repository.ts` — IPC-based data access with full-blob read-modify-write
-  - `src/clients/electron.client.ts` — storeGet/storeSet with JSON deep clone for IPC safety
-  - `electron/preload/index.ts` — storeGet/storeSet context bridge methods
-  - `src/types/favorite.ts` — Collection, FavoriteItem, FavoritesData type definitions
-  - `src/types/index.ts` — AppSettings (4 fields), FinishedDownloadItem, CustomParams types
-  - `src/clients/constants.ts` — STORAGE_KEYS mapping (APP_SETTINGS, DOWNLOAD_FINISHED_LIST, WALLPAPER_QUERY_PARAMS, FAVORITES_DATA)
-  - `package.json` — electron-store v11.0.2 (current), no SQLite dependency yet
-- Web research: electron-store to SQLite migration patterns (Canopy IDE issue #2707, ito issue #127)
-- Web research: SQLite schema versioning with migrations table pattern
-- Web research: WAL journaling `PRAGMA journal_mode=WAL` for crash safety in Electron apps
-- SQLite documentation: `PRAGMA foreign_keys = ON`, `ON DELETE CASCADE`, transactions, indexes
-- [Node.js 24 `node:sqlite` Documentation](https://nodejs.org/download/nightly/v24.0.0-nightly20250503f552c86fec/docs/api/sqlite.html) — Official API reference for DatabaseSync, StatementSync
-- [Electron 41.0.0 Release Announcement](https://az.electronjs.org/blog/electron-41-0) — Confirms Node.js v24.14.0 with `node:sqlite`
+- 现有代码库分析:
+  - `src/views/OnlineWallpaper.vue` — 无限滚动实现，scroll event listener
+  - `src/composables/wallpaper/useWallpaperList.ts` — fetch/loadMore 方法，TotalPageData 使用
+  - `src/stores/modules/wallpaper/index.ts` — Store 状态定义
+  - `src/components/WallpaperList.vue` — sections 数组渲染逻辑
+  - `src/views/FavoritesPage.vue` — 全量收藏显示，filteredFavorites computed
+  - `src/types/index.ts` — PageData, TotalPageData 类型定义
+  - `.planning/PROJECT.md` — v6.0 milestone 目标定义
+- 分页 UI 模式研究:
+  - Wallhaven 官网分页条设计
+  - Google 搜索分页条设计
+  - GitHub Issues 分页条设计
+- SQLite 分页最佳实践:
+  - `LIMIT 24 OFFSET ?` 模式
+  - 索引优化 `CREATE INDEX idx_favorites_wallpaper_id ON favorites(wallpaper_id)`
+  - `COUNT(*) OVER()` 窗口函数获取总数（可选）
 
 ---
-*Feature research for: v5.0 electron-store to SQLite migration*
-*Researched: 2026-05-03*
+*Feature research for: v6.0 传统分页重构*
+*Researched: 2026-05-04*

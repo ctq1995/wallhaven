@@ -1,450 +1,355 @@
-# Technology Stack: electron-store to SQLite Migration
+# Technology Stack: 传统分页重构
 
 **Project:** Wallhaven Wallpaper Browser
-**Researched:** 2026-05-03
-**Mode:** Ecosystem comparison (SQLite libraries for Electron main process)
-**Milestone:** v5.0 (electron-store to SQLite migration)
+**Researched:** 2026-05-04
+**Mode:** Stack Additions for v6.0 传统分页重构
+**Milestone:** v6.0
 
 ---
 
 ## Executive Recommendation
 
-**Use `node:sqlite` (Node.js built-in) -- zero new dependencies.**
+**无需添加任何第三方分页组件库。**
 
-Electron 41 ships **Node.js v24.14.0+**, which includes `node:sqlite` at Stability 1.1 (Active development) with **no experimental flag required**. The entire API surface this project needs -- `new DatabaseSync()`, `.prepare()`, `.get()`, `.all()`, `.run()`, `.exec()` -- has been stable across Node.js 22 through 25 releases.
+项目已有完整的 `.pagination` CSS 样式（位于 `src/static/css/list.css`），支持页码导航的完整 UI 样式。结合现有的 Vue 3 Composition API + Pinia 架构，使用原生实现分页条组件最为简洁。
 
-The previously considered alternative (`better-sqlite3`) adds native module compilation, `electron-rebuild`, `asarUnpack`, and outdated TypeScript types (`@types/better-sqlite3@7.6.13` locked to the v7 API, incompatible with v12). Given the project's small data volume and existing Repository abstraction layer, the built-in module provides everything needed with zero dependency overhead and zero build integration concerns.
-
----
-
-## Recommended Stack
-
-### Core Database Engine
-
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| `node:sqlite` (built-in) | Node.js 24.14+ (ships with Electron 41) | SQLite database engine | Zero dependencies, no native compilation, synchronous API matches current `electron-store` pattern, no `asarUnpack` needed, no `electron-rebuild` required. Available at `import { DatabaseSync } from 'node:sqlite'` out of the box. |
-
-### TypeScript Types
-
-| File | Purpose |
-|------|---------|
-| `electron/main/sqlite.d.ts` (custom declaration, ~30 lines) | Provides `DatabaseSync` and `StatementSync` types. Required because `@types/node` does not include `node:sqlite` types (module is Stability 1.1, DefinitelyTyped skips experimental modules). |
-
-### Database File
-
-| File | Location | Purpose |
-|------|----------|---------|
-| `wallhaven-data.db` | `app.getPath('userData')` (same directory as the current `wallhaven-data.json`) | Replaces `electron-store` JSON blob storage with a proper relational database. |
+SQLite 分页使用标准的 `LIMIT/OFFSET` 模式，配合现有 `node:sqlite` 和 `withTransaction()` 工具函数即可实现。对于"我的收藏"页面的数据量（通常 < 500 条），`LIMIT/OFFSET` 性能完全足够，无需引入游标分页的复杂性。
 
 ---
 
-## Installation
+## Stack Additions Summary
 
-**No new packages to install.**
+| Category | Addition | Version | Purpose | Why |
+|----------|----------|---------|---------|-----|
+| **组件库** | 无 | - | 分页条 UI | 项目已有 `.pagination` CSS 样式，无需引入新库 |
+| **工具库** | 无 | - | 分页逻辑 | Vue 3 Composition API + Pinia 足够处理分页状态 |
+| **SQLite 分页** | 无 | - | 数据库分页 | 使用现有 `node:sqlite` + `LIMIT/OFFSET` 模式 |
+| **缓存** | 无 | - | 内存缓存 | 使用 Vue `reactive()`/`ref()` + `Map` 即可 |
 
-### Removals (after migration is complete and verified)
+**结论：零依赖添加。完全复用现有技术栈。**
 
-```bash
-npm uninstall electron-store
+---
+
+## Pagination UI Implementation
+
+### 推荐方案：自定义 Vue 组件
+
+**理由：**
+1. 项目已有完整的 `.pagination` CSS 样式（list.css 第 1822-1880 行）
+2. 样式与 Wallhaven 官网风格一致，用户体验无缝衔接
+3. 无第三方库学习成本，团队完全掌控代码
+4. 分页逻辑简单（共 X 页，当前第 Y 页，跳转），无需复杂库
+
+### 现有 CSS 样式支持
+
+```css
+/* 已有样式 (list.css) */
+.pagination { margin: 1em auto; text-align: center; }
+.pagination ul { display: inline-block; box-shadow: 0 0 4px rgba(0, 0, 0, 0.4); }
+.pagination li { display: inline-block; text-align: center; }
+.pagination li a, .pagination li span {
+  display: inline-block;
+  line-height: 2em;
+  min-width: 2em;
+  /* ... gradient backgrounds ... */
+}
+.pagination li.active a, .pagination li.active span { /* 当前页高亮 */ }
+.pagination li.disabled a, .pagination li.disabled span { /* 禁用状态 */ }
 ```
 
-The existing `electron-store` is currently in `devDependencies` and must be kept during migration phases for the migration script to read from. Remove in the final cleanup phase.
+### 组件结构建议
 
-### No changes to existing build pipeline
+```
+src/components/
+  Pagination.vue        # 新增：分页条组件
+```
 
-| Config File | Change Needed | Reason |
-|-------------|--------------|--------|
-| `electron.vite.config.ts` | **None** | `externalizeDepsPlugin()` is already configured. `node:sqlite` is a built-in Node.js module -- Vite/Rollup handles it natively. No `rollupOptions.external` additions needed. |
-| `electron-builder.yml` | **None** | No native `.node` binary to unpack from ASAR. The existing `asarUnpack` entries for `sharp` and `@img` remain unchanged. |
-| `electron-builder.yml` (`npmRebuild`) | **None** | `npmRebuild: true` continues handling `sharp`. `node:sqlite` does not need rebuilding. |
-| `postinstall` script | **None** | `electron-builder install-app-deps` continues working for `sharp`. No changes needed. |
+**组件 Props：**
+```typescript
+interface PaginationProps {
+  currentPage: number    // 当前页码 (1-based)
+  totalPages: number     // 总页数
+  totalItems?: number    // 可选：总条目数显示 ("共 X 张")
+  maxVisible?: number    // 可选：最多显示几个页码按钮 (默认 7)
+  disabled?: boolean     // 可选：禁用状态
+}
+```
 
-This is the headline advantage over `better-sqlite3`: **zero configuration changes to the build pipeline.**
+**组件 Emits：**
+```typescript
+interface PaginationEmits {
+  'page-change': [page: number]  // 页码变更事件
+}
+```
+
+### 排除的第三方库
+
+| 库名 | 排除原因 |
+|------|----------|
+| **vueuse/useOffsetPagination** | 工具函数，无 UI 组件。项目无需此抽象层 |
+| **laravel-vue-pagination** | Laravel API 风格耦合，过度设计 |
+| **vue-ads-pagination** | 额外依赖，样式覆盖成本高于自写 |
+| **vee-validate** | 表单验证库，非分页专用 |
+| **Element Plus** | 引入完整 UI 库仅为分页组件，过度依赖 |
 
 ---
 
-## Supported Data Patterns
+## SQLite Pagination Patterns
 
-| Pattern | Current (electron-store) | Future (node:sqlite) |
-|---------|-------------------------|---------------------|
-| **JSON config** (appSettings) | `store.get('appSettings')` | `db.prepare('SELECT value FROM settings WHERE key = ?').get('appSettings')` |
-| **Singleton row** (wallpaperQueryParams) | `store.get('wallpaperQueryParams')` | `db.prepare('SELECT value FROM search_params WHERE id = 1').get()` |
-| **Small capped array** (downloadFinishedList, max 50) | `store.get('downloadFinishedList')` | `db.prepare('SELECT data FROM download_history ORDER BY id DESC LIMIT 50').all()` |
-| **Nested JSON** (favoritesData: collections + favorites) | `store.get('favoritesData')` - read full blob, modify in memory, write full blob | Separate `collections` and `favorites` tables with proper joins and indexes. Targeted INSERT/DELETE without reading the full blob. |
-| **O(1) existence check** (favorites - isFavorited) | `favoriteIds.has(wallpaperId)` (in-memory Set, populated from full JSON blob) | `db.prepare('SELECT 1 FROM favorites WHERE wallpaper_id = ? LIMIT 1').get(id)` - SQL index lookup, no deserialization needed |
+### 推荐方案：LIMIT/OFFSET 分页
 
----
+**适用场景：**
+- "我的收藏"页面数据量：通常 < 500 条
+- 在线壁纸 API 返回：24 张/页，元数据包含 `total` 和 `last_page`
 
-## Database Module Structure
+**SQL 模式：**
+```sql
+-- 分页查询
+SELECT wallpaper_id, wallpaper_data, added_at
+FROM favorites
+WHERE collection_id = ?  -- 可选过滤
+ORDER BY added_at DESC
+LIMIT ? OFFSET ?;
+
+-- 总数查询（用于显示"共 X 张"）
+SELECT COUNT(*) as total FROM favorites WHERE collection_id = ?;
+```
+
+### 计算公式
 
 ```typescript
-// electron/main/database.ts
-import { DatabaseSync } from 'node:sqlite'
-import { app } from 'electron'
-import { join } from 'path'
-
-let db: DatabaseSync
-
-export function getDatabase(): DatabaseSync {
-  if (!db) {
-    db = new DatabaseSync(join(app.getPath('userData'), 'wallhaven-data.db'), {
-      enableForeignKeyConstraints: true,
-      timeout: 5000
-    })
-    initializeSchema()
-  }
-  return db
-}
-
-function initializeSchema(): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS search_params (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      value TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS download_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      wallpaper_id TEXT,
-      url TEXT,
-      filename TEXT,
-      file_path TEXT,
-      file_size INTEGER,
-      thumbnail_path TEXT,
-      resolution TEXT,
-      data TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS collections (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS favorites (
-      collection_id TEXT NOT NULL,
-      wallpaper_id TEXT NOT NULL,
-      wallpaper_data TEXT NOT NULL,
-      added_at TEXT NOT NULL,
-      PRIMARY KEY (collection_id, wallpaper_id),
-      FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_favorites_wallpaper
-      ON favorites(wallpaper_id);
-    CREATE INDEX IF NOT EXISTS idx_download_history_created
-      ON download_history(created_at DESC);
-  `)
-}
-
-export function closeDatabase(): void {
-  if (db) {
-    db.close()
-    db = undefined as unknown as DatabaseSync
-  }
-}
+// 页码计算 (1-based)
+const pageSize = 24  // 与 Wallhaven API 一致
+const offset = (currentPage - 1) * pageSize
+const totalPages = Math.ceil(totalCount / pageSize)
 ```
 
+### 性能评估
+
+| 数据量 | LIMIT/OFFSET 性能 | 建议 |
+|--------|------------------|------|
+| < 1000 条 | 优秀 (< 1ms) | ✅ 推荐，无需优化 |
+| 1000-10000 条 | 良好 (< 10ms) | ✅ 可接受 |
+| > 10000 条 | 可能变慢 | ⚠️ 考虑游标分页（本项目不适用） |
+
+**SQLite 索引优化（已存在）：**
+```sql
+-- 已有索引 (database.ts)
+CREATE INDEX idx_favorites_wallpaper ON favorites(wallpaper_id);
+CREATE INDEX idx_download_history_created ON download_history(created_at DESC);
+```
+
+**建议添加的索引（收藏分页优化）：**
+```sql
+-- 用于按收藏夹筛选 + 时间排序的分页查询
+CREATE INDEX idx_favorites_collection_added
+  ON favorites(collection_id, added_at DESC);
+```
+
+### 排除的方案：游标分页 (Cursor Pagination)
+
+**原因：**
+1. 游标分页适用于大数据量（> 10000 条）深度分页场景
+2. 实现复杂度高：需要持久化游标、处理插入/删除后的游标失效
+3. 本项目数据量小，`LIMIT/OFFSET` 完全够用
+4. Wallhaven API 本身使用 `page` 参数，游标分页无法复用 API 元数据
+
 ---
 
-## API Surface Comparison
+## Memory Caching Strategy
 
-The `node:sqlite` API mirrors `better-sqlite3` closely. Both are synchronous.
+### 推荐方案：Vue Reactive Map
 
-| Operation | better-sqlite3 | node:sqlite |
-|-----------|---------------|-------------|
-| Open database | `new Database(path)` | `new DatabaseSync(path)` |
-| Prepare statement | `db.prepare(sql)` | `db.prepare(sql)` |
-| Get single row | `stmt.get(params)` | `stmt.get(params)` |
-| Get all rows | `stmt.all(params)` | `stmt.all(params)` |
-| Execute write | `stmt.run(params)` | `stmt.run(params)` |
-| Execute raw SQL | `db.exec(sql)` | `db.exec(sql)` |
-| Transaction | `db.transaction(fn)()` | Manual: `BEGIN`/`COMMIT`/`ROLLBACK` |
-| Pragma | `db.pragma('key')` | `db.exec('PRAGMA key')` |
-| Close | `db.close()` | `db.close()` |
-
-**Key differences:**
-- `node:sqlite` lacks a built-in `transaction()` helper -- use raw SQL (`BEGIN`/`COMMIT`/`ROLLBACK`)
-- `node:sqlite` lacks a `pragma()` shortcut -- use `db.exec('PRAGMA ...')`
-- `node:sqlite` uses `Record<string, unknown>` row types (identical to `better-sqlite3`) -- both are looser than an ORM but sufficient with type assertions in the Repository layer
-
----
-
-## Transaction Wrapper
-
-Since `node:sqlite` lacks `better-sqlite3`'s built-in `.transaction()` method, write a small utility:
+**实现：** 在 Store/Composable 层使用 `Map<string, PageData>` 缓存已加载页面。
 
 ```typescript
-// electron/main/database.ts (add to file)
+// useWallpaperList.ts 或 wallpaperStore
+const pageCache = reactive(new Map<number, PageData>())
 
-export function withTransaction<T>(fn: () => T): T {
-  const db = getDatabase()
-  try {
-    db.exec('BEGIN')
-    const result = fn()
-    db.exec('COMMIT')
-    return result
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+// 获取页面时检查缓存
+async function fetchPage(page: number): Promise<PageData> {
+  // 1. 检查内存缓存
+  const cached = pageCache.get(page)
+  if (cached) return cached
+
+  // 2. 缓存未命中，请求 API
+  const result = await wallpaperService.search({ ...queryParams, page })
+  const pageData = toPageData(result.data!)
+
+  // 3. 写入缓存
+  pageCache.set(page, pageData)
+  return pageData
+}
+
+// 搜索条件变更时清空缓存
+function clearCache(): void {
+  pageCache.clear()
 }
 ```
 
-This is used in the migration script and for writes that touch multiple tables (e.g., inserting a collection with initial favorites, or capping download_history at 50 entries).
+### 缓存策略
+
+| 策略 | 说明 |
+|------|------|
+| **缓存粒度** | 按 `Map<page, PageData>` 存储，每页独立缓存 |
+| **缓存触发** | 首次访问页面时加载，后续访问直接返回 |
+| **缓存失效** | 搜索条件变更时清空全部缓存 |
+| **缓存上限** | 无硬性限制（数据量小，内存占用可忽略） |
+
+### 排除的方案
+
+| 方案 | 排除原因 |
+|------|----------|
+| **localStorage/sessionStorage** | 数据序列化成本、无必要持久化 |
+| **IndexedDB** | 过度设计，内存缓存足够 |
+| **LRU Cache 库** | 引入额外依赖，数据量小无需淘汰策略 |
 
 ---
 
-## Migration Script Architecture
+## Data Structure Changes
 
-Keep `electron-store` as a readonly source during migration, running the script once on first launch after the upgrade:
+### 现有数据结构 (TotalPageData)
 
 ```typescript
-// electron/main/migrate.ts
-import { store } from '../store' // kept during migration
-import { getDatabase, withTransaction } from './database'
+// src/types/index.ts
+interface TotalPageData {
+  totalPage: number
+  currentPage: number
+  sections: PageData[]  // 无限滚动：追加到 sections
+}
 
-export function migrateFromElectronStore(): boolean {
-  const db = getDatabase()
-
-  // Guard: skip if already migrated
-  const row = db.prepare('SELECT 1 FROM settings WHERE key = ?').get('_migrated_from_store')
-  if (row) return false
-
-  return withTransaction(() => {
-    // 1. Migrate appSettings
-    const appSettings = store.get('appSettings')
-    if (appSettings !== undefined) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-        .run('appSettings', JSON.stringify(appSettings))
-    }
-
-    // 2. Migrate search params
-    const searchParams = store.get('wallpaperQueryParams')
-    if (searchParams !== undefined) {
-      db.prepare('INSERT OR REPLACE INTO search_params (id, value) VALUES (1, ?)')
-        .run(JSON.stringify(searchParams))
-    }
-
-    // 3. Migrate download history
-    const downloads = store.get('downloadFinishedList') as unknown[]
-    if (Array.isArray(downloads)) {
-      const stmt = db.prepare('INSERT INTO download_history (data) VALUES (?)')
-      for (const item of downloads) {
-        stmt.run(JSON.stringify(item))
-      }
-    }
-
-    // 4. Migrate collections
-    const favoritesData = store.get('favoritesData') as Record<string, unknown> | null
-    if (favoritesData) {
-      const collections = favoritesData['collections'] as Array<Record<string, unknown>> | undefined
-      if (collections) {
-        const stmt = db.prepare(
-          'INSERT OR REPLACE INTO collections (id, name, is_default, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-        )
-        for (const c of collections) {
-          stmt.run(
-            c['id'], c['name'], c['isDefault'] ? 1 : 0, c['sortOrder'] ?? 0,
-            c['createdAt'] ?? new Date().toISOString(),
-            c['updatedAt'] ?? new Date().toISOString()
-          )
-        }
-      }
-
-      // 5. Migrate favorites
-      const favorites = favoritesData['favorites'] as Array<Record<string, unknown>> | undefined
-      if (favorites) {
-        const stmt = db.prepare(
-          'INSERT OR REPLACE INTO favorites (collection_id, wallpaper_id, wallpaper_data, added_at) VALUES (?, ?, ?, ?)'
-        )
-        for (const f of favorites) {
-          stmt.run(
-            f['collectionId'], f['wallpaperId'],
-            JSON.stringify(f['wallpaperData'] ?? f),
-            f['addedAt'] ?? new Date().toISOString()
-          )
-        }
-      }
-    }
-
-    // 6. Mark migration complete
-    db.prepare("INSERT INTO settings (key, value) VALUES ('_migrated_from_store', '1')").run()
-  })
+interface PageData {
+  totalPage: number
+  currentPage: number
+  data: WallpaperItem[]
 }
 ```
 
----
-
-## Alternatives Considered
-
-### Option A (Rejected): better-sqlite3 v12.9.0
-
-| Factor | Assessment |
-|--------|-----------|
-| **API** | Excellent. Synchronous, built-in `transaction()` and `pragma()` helpers. The gold standard for Node.js SQLite ergonomics. |
-| **TypeScript types** | **Critical weakness.** `@types/better-sqlite3@7.6.13` (latest on DefinitelyTyped, April 2025) covers the **v7 API only**. The current `better-sqlite3` is v12.x with different `pragma()` return types, `checkpoint()` API, and `Int64` -> `Integer` changes. The types are wrong for the installed version. Custom declarations are needed anyway, negating the "types included" advantage. |
-| **Electron 41 compatibility** | Fixed in v12.8.0 via a `HolderV2()` V8 API patch. Must use >= v12.8.0. Earlier v12.7.x releases are **broken** for Electron 41. Requires tracking compatibility matrix on each Electron upgrade. |
-| **electron-vite integration** | Must be in `dependencies` (not devDependencies) for `externalizeDepsPlugin()` to externalize it. Doable but requires awareness. |
-| **electron-builder packaging** | Must add `asarUnpack: ['node_modules/better-sqlite3/**']` to `electron-builder.yml` alongside the existing `sharp` unpack entry. Must ensure `npmRebuild: true` rebuilds it. |
-| **Build complexity** | Adds native compilation step that can fail on CI or locked-down environments. The project already has one native module (`sharp`); adding another multiplies the risk of version-specific build failures. |
-| **Maintenance burden** | Each Electron major version upgrade requires verifying better-sqlite3 has updated its prebuilds. Past failures (v12.7.x broken for Electron 41, NODE_MODULE_VERSION mismatches) show this is not frictionless. |
-| **Verdict** | **Not recommended.** The TypeScript type situation is the decisive negative: the official types are locked to v7, and writing custom declarations for `better-sqlite3` means you have the same effort as writing them for `node:sqlite` but with the added burden of native module management. The `node:sqlite` built-in avoids all build integration issues with no equivalent loss of functionality. |
-
-### Option B (Rejected): @photostructure/sqlite
-
-| Factor | Assessment |
-|--------|-----------|
-| **API** | Drop-in compatible with `node:sqlite` plus `enhance()` for `transaction()` and `pragma()` helpers. |
-| **TypeScript types** | Excellent -- ships complete type definitions. |
-| **Dependencies** | Zero dependencies. Prebuilt binaries for Windows/macOS/Linux (x64 + ARM64). |
-| **Build integration** | Prebuilt binaries avoid compilation, but are still native `.node` binaries. May need `asarUnpack`. |
-| **Maturity** | Young project (May 2025, ~7 stars on GitHub). Single maintainer (PhotoStructure / @mceachen). |
-| **Verdict** | **Not recommended over built-in `node:sqlite`.** Since Electron 41 ships Node.js 24.14+ with `node:sqlite`, adding this package provides only `enhance()` helpers and TypeScript types -- both easily replicated with a ~30-line type declaration and a 5-line `withTransaction()` wrapper. Adding a third-party native dependency for marginal benefit is unnecessary. Worth knowing as a fallback if `node:sqlite` has issues. |
-
-### Option C (Rejected): sql.js (WASM-based)
-
-| Factor | Assessment |
-|--------|-----------|
-| **API** | Synchronous after async init. WASM-based, no native compilation. |
-| **Persistence** | **Manual save required.** In-memory; must call `fs.writeFileSync()` on every write. Data loss risk if the app crashes before save. |
-| **Performance** | WASM overhead. For the app's data volume (<500 rows), the difference is negligible, but the persistence risk is not. |
-| **Verdict** | **Not recommended.** `node:sqlite` provides native disk persistence with ACID guarantees at zero cost. sql.js is best when native modules cannot be used (browser, locked-down platforms) -- neither constraint applies here. |
-
-### Option D (Rejected): node-sqlite3 (a.k.a. sqlite3)
-
-| Factor | Assessment |
-|--------|-----------|
-| **API** | Async callback-based. Does not match the synchronous `electron-store` pattern. |
-| **Status** | **Deprecated as of December 2025.** |
-| **Verdict** | **Not recommended.** Deprecated and async. Using it would require rewriting all store consumers for async access, adding significant migration scope. |
-
----
-
-## TypeScript Type Declaration
-
-Create `electron/main/sqlite.d.ts` with only the types actually used:
+### 目标数据结构 (PageData + Cache)
 
 ```typescript
-// electron/main/sqlite.d.ts
-// Custom type declarations for node:sqlite (built-in, Stability 1.1)
-// @types/node does not include these due to experimental status.
-// Minimal surface -- only what this project uses.
-
-declare module 'node:sqlite' {
-  type BindParams = Record<string, unknown> | unknown[]
-
-  interface RunResult {
-    lastInsertRowid: number
-    changes: number
-  }
-
-  interface DatabaseOptions {
-    open?: boolean
-    readOnly?: boolean
-    enableForeignKeyConstraints?: boolean
-    timeout?: number
-  }
-
-  interface ColumnInfo {
-    name: string
-    column: string | null
-    table: string | null
-    database: string | null
-    type: string | null
-  }
-
-  export class StatementSync<T extends Record<string, unknown> = Record<string, unknown>> {
-    all(...params: BindParams[]): T[]
-    get(...params: BindParams[]): T | undefined
-    run(...params: BindParams[]): RunResult
-    iterate(...params: BindParams[]): IterableIterator<T>
-    columns(): ColumnInfo[]
-    readonly sourceSQL: string
-    readonly expandedSQL: string
-  }
-
-  export class DatabaseSync {
-    constructor(location: string, options?: DatabaseOptions)
-    close(): void
-    exec(sql: string): void
-    open(): void
-    prepare<T extends Record<string, unknown> = Record<string, unknown>>(
-      sql: string
-    ): StatementSync<T>
-    readonly isOpen: boolean
-    readonly isTransaction: boolean
-  }
-}
-```
-
----
-
-## Wiring into the Existing Architecture
-
-### File Changes
-
-```
-electron/main/
-  store.ts              -- REMOVE (after migration verified)
-  database.ts           -- ADD (SQLite connection + schema init + withTransaction)
-  migrate.ts            -- ADD (one-time data migration from electron-store)
-  sqlite.d.ts           -- ADD (TypeScript type declarations for node:sqlite)
-  ipc/handlers/
-    store.handler.ts    -- MODIFY (replace store.get/set with SQLite queries)
-```
-
-### Store Handler Modification Pattern
-
-The IPC handler signatures remain unchanged. Only the implementation changes:
-
-```typescript
-// Current (electron-store):
-ipcMain.handle('store-get', (_event, key: string) => {
-  const value = store.get(key)
-  return { success: true, value }
+// 在线壁纸页面：单页数据 + 缓存
+const currentPageData = ref<PageData>({
+  totalPage: 0,
+  currentPage: 1,
+  data: []
 })
 
-// Future (node:sqlite):
-ipcMain.handle('store-get', (_event, key: string) => {
-  const row = getDatabase()
-    .prepare<{ value: string }>('SELECT value FROM settings WHERE key = ?')
-    .get(key)
-  const value = row ? JSON.parse(row.value) : null
-  return { success: true, value }
+const pageCache = reactive(new Map<number, PageData>())
+
+// 我的收藏页面：无限滚动保持 TotalPageData 结构
+const favoritesData = ref<TotalPageData>({
+  totalPage: 0,
+  currentPage: 0,
+  sections: []
 })
 ```
 
-### Renderer Impact
+### 迁移路径
 
-**No changes.** The IPC channel signatures remain identical:
-- `store-get` -> returns `{ success: true, value }` (same shape)
-- `store-set` -> accepts `{ key, value }` (same shape)
-- `store-delete` -> accepts `key` (same shape)
-- `store-clear` -> no args (same shape)
+1. **在线壁纸页面**：
+   - 移除 `sections` 数组，改用单页 `PageData`
+   - 新增 `pageCache: Map<number, PageData>` 缓存已加载页
+   - `currentPage` 变更时从缓存或 API 加载
 
-The `ElectronClient`, repositories, services, composables, and views are entirely unaffected.
+2. **我的收藏页面**：
+   - 保持 `TotalPageData` 结构（无限滚动）
+   - 添加 SQLite 分页查询支持
+   - 侧边栏收藏数目响应式更新
 
 ---
 
-## Security Implications
+## Integration with Existing Stack
 
-| Concern | Mitigation |
-|---------|------------|
-| SQL injection | All queries use parameterized prepared statements (`?` placeholders). Never interpolate user input into SQL strings. |
-| Database file access | Stored in `app.getPath('userData')`, which is user-private on all platforms (macOS: `~/Library/Application Support/`, Windows: `%APPDATA%`, Linux: `~/.config/`). |
-| Extension loading | `allowExtension` defaults to `false` in the DatabaseSync constructor. Not set -- no extensions loaded. |
-| Data integrity | WAL mode is the default in SQLite 3.51+ (the version in Node.js 24). `enableForeignKeyConstraints: true` ensures referential integrity between collections and favorites. |
+### 无需修改的文件
+
+| 文件/模块 | 原因 |
+|----------|------|
+| `electron/main/database.ts` | 已有完整的 SQLite 基础设施 |
+| `electron/main/sqlite.d.ts` | 已有类型声明 |
+| `src/clients/electron.client.ts` | 无需新增 IPC 通道（复用现有查询） |
+| `package.json` | 零依赖添加 |
+
+### 需要新增的文件
+
+| 文件 | 用途 |
+|------|------|
+| `src/components/Pagination.vue` | 分页条 UI 组件 |
+
+### 需要修改的文件
+
+| 文件 | 变更内容 |
+|------|----------|
+| `src/stores/modules/wallpaper/index.ts` | 添加 `pageCache`，修改分页逻辑 |
+| `src/composables/wallpaper/useWallpaperList.ts` | 重构 `fetch`/`loadMore` 为 `fetchPage` |
+| `src/views/OnlineWallpaper.vue` | 集成分页条组件，移除滚动监听 |
+| `src/views/FavoritesPage.vue` | 添加 SQLite 分页查询支持 |
+| `electron/main/ipc/handlers/favorites.handler.ts` | 新增分页查询 IPC 通道 |
+| `src/types/index.ts` | 保持现有类型，可能添加 `PaginatedResult<T>` |
+
+---
+
+## Recommended IPC Additions
+
+### 收藏分页查询
+
+```typescript
+// 新增 IPC 通道
+'favorites:get-paginated': {
+  collectionId?: string,  // 可选：指定收藏夹
+  page: number,           // 页码 (1-based)
+  pageSize: number        // 每页条数 (默认 24)
+}
+
+// 返回类型
+interface PaginatedFavorites {
+  data: FavoriteItem[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+```
+
+### SQLite Handler 实现
+
+```typescript
+// electron/main/ipc/handlers/favorites.handler.ts
+ipcMain.handle('favorites:get-paginated', (_event, params) => {
+  const { collectionId, page = 1, pageSize = 24 } = params
+  const offset = (page - 1) * pageSize
+
+  const db = getDatabase()
+
+  // 总数查询
+  const countSql = collectionId
+    ? 'SELECT COUNT(*) as total FROM favorites WHERE collection_id = ?'
+    : 'SELECT COUNT(*) as total FROM favorites'
+  const countRow = collectionId
+    ? db.prepare(countSql).get(collectionId)
+    : db.prepare(countSql).get()
+  const total = (countRow as { total: number }).total
+
+  // 分页查询
+  const dataSql = collectionId
+    ? `SELECT * FROM favorites WHERE collection_id = ? ORDER BY added_at DESC LIMIT ? OFFSET ?`
+    : `SELECT * FROM favorites ORDER BY added_at DESC LIMIT ? OFFSET ?`
+  const rows = collectionId
+    ? db.prepare(dataSql).all(collectionId, pageSize, offset)
+    : db.prepare(dataSql).all(pageSize, offset)
+
+  return {
+    success: true,
+    data: {
+      data: rows.map(row => deserializeFavorite(row)),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
+    }
+  }
+})
+```
 
 ---
 
@@ -452,27 +357,32 @@ The `ElectronClient`, repositories, services, composables, and views are entirel
 
 | Aspect | Confidence | Reason |
 |--------|------------|--------|
-| `node:sqlite` availability in Electron 41 | HIGH | Official blog post confirms Node.js v24.14.0. Node.js 24 ships `node:sqlite` without experimental flag. |
-| `node:sqlite` API stability for this project | HIGH | Only using prepare/get/all/run/exec -- the most stable part of the API. These have not changed across Node.js 22-25. |
-| TypeScript custom declaration adequacy | MEDIUM | The declaration file covers only what is used. If `node:sqlite` types change in an edge case not tested here, the declaration may need adjustment. Mitigation: the Repository layer insulates most code from the declaration. |
-| `@types/better-sqlite3` being outdated | HIGH | DefinitelyTyped shows v7.6.13 as latest. better-sqlite3 is on v12.x. The API surface has diverged. |
-| electron-builder integration risk (node:sqlite) | HIGH (no risk) | No native module, no asarUnpack, no rebuild needed. Works identically in dev and packaged builds. |
-| electron-builder integration risk (better-sqlite3) | MEDIUM | Known to cause "Cannot find module" errors after packaging (multiple SO threads). Requires asarUnpack + rebuild + external config. |
+| 零依赖策略 | **HIGH** | 现有 CSS 样式 + Vue 3 足够，无需第三方库 |
+| LIMIT/OFFSET 性能 | **HIGH** | 收藏数据量小（< 500 条），性能优秀 |
+| 内存缓存策略 | **HIGH** | Vue `reactive(Map)` 成熟稳定 |
+| 组件实现复杂度 | **HIGH** | 分页条 UI 简单，现有样式覆盖完整 |
+| 集成风险 | **LOW** | 仅修改 View/Composable 层，不涉及底层架构 |
+
+---
+
+## Summary
+
+**核心决策：零依赖添加，复用现有技术栈。**
+
+1. **分页 UI**：使用现有 `.pagination` CSS + 自定义 Vue 组件
+2. **SQLite 分页**：使用 `LIMIT/OFFSET` + 索引优化
+3. **内存缓存**：使用 `reactive(Map<number, PageData>)`
+4. **数据结构**：在线壁纸用单页 `PageData`，我的收藏保持 `TotalPageData`
 
 ---
 
 ## Sources
 
-- [Electron 41.0.0 Release Announcement](https://az.electronjs.org/blog/electron-41-0) -- Node.js v24.14.0 confirmed -- HIGH confidence
-- [Node.js 24 `node:sqlite` Documentation (nightly)](https://nodejs.org/download/nightly/v24.0.0-nightly20250503f552c86fec/docs/api/sqlite.html) -- Official API reference -- HIGH confidence
-- [SQLite library comparison (photostructure)](https://photostructure.github.io/node-sqlite/documents/library-comparison.html) -- Stability level matrix across Node.js versions -- MEDIUM confidence
-- [TypeScript 6.0 Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6.0/) -- Confirms TS 6.0 does not add Node built-in module types -- HIGH confidence
-- [@types/better-sqlite3 npm page](https://www.npmjs.com/package/@types/better-sqlite3) -- v7.6.13, indexed for v7 API -- HIGH confidence
-- [better-sqlite3 v12.8.0 Release](https://github.com/WiseLibs/better-sqlite3/releases/tag/v12.7.0) -- Electron 41 V8 fix (HolderV2) -- MEDIUM confidence
-- [electron-vite Dependency Handling](https://electron-vite.org/guide/dependency-handling) -- Official docs on native module externalization -- HIGH confidence
-- [electron-vite Distribution Guide](https://electron-vite.org/guide/distribution) -- asarUnpack configuration for native modules -- HIGH confidence
-- Current codebase: `electron/main/store.ts`, `electron.vite.config.ts`, `electron-builder.yml`, `src/clients/electron.client.ts`, `src/clients/constants.ts`, `src/repositories/`, `package.json`
+- [SQLite LIMIT/OFFSET Documentation](https://www.sqlite.org/lang_select.html#limitoffset) — 官方文档
+- [Vue 3 Reactivity API](https://vuejs.org/api/reactivity-core.html) — reactive/ref 官方文档
+- [Wallhaven API Documentation](https://wallhaven.cc/help/api) — API 返回格式参考
+- Current codebase: `src/types/index.ts`, `src/stores/modules/wallpaper/index.ts`, `src/composables/wallpaper/useWallpaperList.ts`, `src/static/css/list.css`, `electron/main/database.ts`
 
 ---
 
-*Researched: 2026-05-03 for v5.0 milestone*
+*Researched: 2026-05-04 for v6.0 milestone*

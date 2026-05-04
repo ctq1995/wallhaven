@@ -213,7 +213,7 @@ After migration, there would be THREE settings sources: the SQLite `settings` ta
 
 **Consequences:** Settings appear lost (or reverting to defaults). The user saves settings but they don't persist across restarts. Debugging is confusing because the two paths silently coexist.
 
-**Prevention:** 
+**Prevention:**
 1. Audit all callers of `electronClient.saveSettings()` and `electronClient.loadSettings()` — they are dead code (no current callers found)
 2. In the migration, either:
    a. **Redirect** the old channels to SQLite (point `save-settings` handler at SQLite read/write)
@@ -232,7 +232,7 @@ After migration, there would be THREE settings sources: the SQLite `settings` ta
 
 **Consequences:** Slow startup on first launch after migration. User sees a frozen splash screen with no progress indication.
 
-**Prevention:** 
+**Prevention:**
 1. Use a single transaction (not individual commits) — SQLite batches all writes
 2. Use prepared statements outside the loop — less JS overhead per iteration
 3. Estimate worst-case migration time: 5000 items at 1000 inserts/second = 5 seconds. Acceptable for a one-time migration.
@@ -1052,8 +1052,457 @@ The migration script logs each INSERT if not careful. For 5000 download history 
 - [Signal Desktop SQLite practices](https://github.com/signalapp/Signal-Desktop) — Production Electron + SQLite reference (migration guards, FK handling) — MEDIUM confidence
 - [vitest-dev/vitest Discussion #2142](https://github.com/vitest-dev/vitest/discussions/2142) — `ELECTRON_RUN_AS_NODE` workaround for native modules — LOW confidence
 - [electron-vite Dependency Handling](https://electron-vite.org/guide/dependency-handling) — Native module externalization docs (confirms no changes needed for `node:sqlite`) — HIGH confidence
-- [TypeScript 6.0 Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6.0/) — Confirms TS 6.0 does not add Node built-in module types — HIGH confidence
+- [TypeScript 6.0 Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/) — Confirms TS 6.0 does not add Node built-in module types — HIGH confidence
 
 ---
 *Pitfalls research for: v5.0 electron-store -> SQLite migration*
 *Researched: 2026-05-03*
+
+---
+
+# v6.0 传统分页重构陷阱
+
+**Domain:** 将无限滚动改为传统分页，SQL 层计算收藏状态，内存缓存分页数据
+**Researched:** 2026-05-04
+**Confidence:** HIGH
+
+---
+
+## 一、分页实现陷阱
+
+### P-P1: 页码越界处理不完整
+
+**问题描述：**
+当用户删除最后一个收藏项后，当前页码可能超出有效范围（如共 3 页数据，用户在第 3 页删除最后一条，此时只剩 2 页但页码仍为 3）。
+
+**症状：**
+- 显示空白页面
+- 侧边栏计数与实际显示不一致
+- 无限加载状态
+
+**预防策略：**
+- 删除操作后检查当前页是否为空
+- 若当前页为空且非第一页，自动跳转到前一页
+- 在 Repository 层返回实际总数，由 Composable 决定页码调整
+
+**应处理阶段：** 执行阶段 — 收藏项删除逻辑
+
+---
+
+### P-P2: TotalPageData 与 PageData 结构混用
+
+**问题描述：**
+当前代码使用 `TotalPageData` 结构（`sections: PageData[]`）支持无限滚动。切换到传统分页后，直接复用此结构可能导致：
+- `sections` 数组冗余（传统分页每页独立，不需要 sections 累加）
+- `currentPage` 与 `sections` 索引不同步
+- 缓存逻辑复杂化
+
+**症状：**
+- 页码切换后数据错乱
+- 内存缓存无法正确命中
+- 组件 computed 计算错误
+
+**预防策略：**
+- 定义新的 `PageCache` 类型：`Map<number, PageData>` 存储已加载页面
+- Store 中使用 `currentPageData: PageData` 而非 `TotalPageData`
+- 保留 `TotalPageData` 仅用于"我的收藏"无限滚动场景
+
+**应处理阶段：** 规划阶段 — 数据结构设计
+
+---
+
+### P-P3: 内存缓存失效策略缺失
+
+**问题描述：**
+实现"内存缓存已加载页面数据"需求时，若无明确失效策略：
+- 收藏状态变更后缓存数据过期但仍被使用
+- 缓存无限增长导致内存泄漏
+- 刷新操作未清除缓存
+
+**症状：**
+- 收藏/取消收藏后，页面显示的 `is_favorite` 状态不更新
+- 长时间使用后内存占用持续增长
+- 强制刷新后数据仍为旧数据
+
+**预防策略：**
+- 定义明确的缓存键：`(queryParams, page)` 组合
+- 收藏状态变更时，使相关缓存失效（或更新缓存中的 `is_favorite` 字段）
+- 提供手动清除缓存的方法（供下拉刷新使用）
+- 考虑 LRU 策略限制缓存大小
+
+**应处理阶段：** 规划阶段 — 缓存策略设计
+
+---
+
+### P-P4: 并发请求竞态条件
+
+**问题描述：**
+快速点击页码切换时，多个请求可能并发发出，后发出的请求可能先返回：
+
+```
+用户点击: 第1页 → 第2页 → 第3页
+请求发出: fetch(1) → fetch(2) → fetch(3)
+响应返回: fetch(3) → fetch(1) → fetch(2)  // 乱序
+显示结果: 第2页数据（错误！用户期望第3页）
+```
+
+**症状：**
+- 页码指示器与实际内容不匹配
+- 快速切换后显示错误页面内容
+
+**预防策略：**
+- 使用请求序列号或 AbortController 取消旧请求
+- 在 Store 中记录当前请求 ID，响应时检查是否为最新请求
+- 或使用请求锁，新请求发出时取消进行中的请求
+
+**应处理阶段：** 执行阶段 — fetch 方法实现
+
+---
+
+## 二、SQL 层收藏状态计算陷阱
+
+### P-P5: LEFT JOIN 导致数据重复
+
+**问题描述：**
+计算 `is_favorite` 需要将 Wallhaven API 返回的壁纸数据与 `favorites` 表关联。若一个壁纸存在于多个收藏夹：
+
+```sql
+-- 错误示例：一个壁纸在3个收藏夹中，返回3行
+SELECT w.*, f.collection_id
+FROM wallpapers w
+LEFT JOIN favorites f ON w.id = f.wallpaper_id
+```
+
+**症状：**
+- 同一壁纸在列表中出现多次
+- 分页计数不准确
+- UI 渲染异常
+
+**预防策略：**
+- 使用 `EXISTS` 子查询而非 `LEFT JOIN`：
+  ```sql
+  SELECT *,
+    EXISTS(SELECT 1 FROM favorites WHERE wallpaper_id = ?) as is_favorite
+  FROM wallpapers
+  ```
+- 或使用 `GROUP BY` + `GROUP_CONCAT` 合并收藏夹信息
+
+**应处理阶段：** 规划阶段 — SQL 查询设计
+
+---
+
+### P-P6: API 数据与本地状态不一致
+
+**问题描述：**
+Wallhaven API 返回的壁纸数据不包含 `is_favorite` 字段。需要在前端或后端注入此信息。
+
+当前架构中，API 数据在 Service 层获取，收藏状态在 Store 层计算（`favoriteIds: Set<string>`）。
+
+**潜在问题：**
+- Service 层返回的数据不包含 `is_favorite`，需在 Composable 层合并
+- 合并时机不当会导致响应式失效
+- 批量查询收藏状态可能阻塞渲染
+
+**症状：**
+- `is_favorite` 状态不响应收藏操作
+- 首次加载时 `is_favorite` 全为 `false`，需等待二次查询
+- 性能下降
+
+**预防策略：**
+- 方案 A（推荐）：在 API 响应处理时同步注入 `is_favorite`
+  - Service 层返回数据后，Composable 层遍历设置 `is_favorite`
+  - 利用现有 `favoriteIds` Set 进行 O(1) 查询
+- 方案 B：IPC 查询时注入
+  - 主进程收到 API 响应后，查询 SQLite 批量注入
+  - 缺点：增加主进程职责，API 代理与数据库耦合
+
+**应处理阶段：** 规划阶段 — 数据流设计
+
+---
+
+### P-P7: 收藏状态更新延迟
+
+**问题描述：**
+用户点击收藏后，`is_favorite` 应立即更新。但：
+- 当前实现需等待 `favoritesService.add()` 完成后重新 `loadFavorites()`
+- 重新加载全量收藏列表耗时
+- 网络延迟可能导致状态更新滞后
+
+**症状：**
+- 点击收藏后小红心有短暂延迟
+- 快速连续操作可能丢失状态
+- 用户体验不佳
+
+**预防策略：**
+- 乐观更新：点击时立即更新本地 `is_favorite` 和 `favoriteIds`
+- 失败时回滚状态
+- 避免每次收藏操作后重新加载全量数据
+- 使用 SQLite 的增量更新而非全量替换
+
+**应处理阶段：** 执行阶段 — 收藏操作实现
+
+---
+
+## 三、SQLite 分页性能陷阱
+
+### P-P8: OFFSET 大数据集性能问题
+
+**问题描述：**
+SQLite 的 `LIMIT/OFFSET` 分页在偏移量大时性能下降：
+
+```sql
+-- 当 offset = 10000 时，SQLite 需扫描前 10000 行再返回 24 行
+SELECT * FROM favorites ORDER BY added_at DESC LIMIT 24 OFFSET 10000
+```
+
+**症状：**
+- 深度分页响应时间显著增加
+- 用户跳转到最后一页时卡顿
+
+**预防策略：**
+- 使用键集分页（keyset pagination）替代 OFFSET：
+  ```sql
+  -- 记住上一页最后一条的 added_at
+  SELECT * FROM favorites
+  WHERE added_at < ?  -- 上一页最后一条的时间
+  ORDER BY added_at DESC
+  LIMIT 24
+  ```
+- 缺点：不支持随机跳页，仅适用于无限滚动
+- 本项目"我的收藏"使用无限滚动，可采用此方案
+- "在线壁纸"使用传统分页，仍需 OFFSET（但数据来自 API，无此问题）
+
+**应处理阶段：** 规划阶段 — 分页方案选择
+
+---
+
+### P-P9: COUNT(*) 查询性能
+
+**问题描述：**
+显示"共 X 张"需要 `COUNT(*)` 查询。在 `favorites` 表数据量大时：
+
+```sql
+SELECT COUNT(*) FROM favorites  -- 全表扫描
+```
+
+**症状：**
+- 侧边栏计数加载慢
+- 每次刷新都重新计数
+
+**预防策略：**
+- SQLite 对 `COUNT(*)` 无索引优化，但本项目的收藏数据量级（预期 < 10000）影响有限
+- 可缓存 count 值，仅在增删操作后更新
+- 或在 `collections` 表中维护 `item_count` 冗余字段
+
+**应处理阶段：** 执行阶段 — 计数实现（可视数据量决定是否优化）
+
+---
+
+### P-P10: 复合查询索引缺失
+
+**问题描述：**
+"我的收藏"可能需要按收藏夹筛选 + 排序 + 分页：
+
+```sql
+SELECT * FROM favorites
+WHERE collection_id = ?
+ORDER BY added_at DESC
+LIMIT 24 OFFSET ?
+```
+
+若无合适索引，查询效率低下。
+
+**预防策略：**
+- 确保存在复合索引：`CREATE INDEX idx_favorites_collection_added ON favorites(collection_id, added_at DESC)`
+- 当前 schema 仅有 `idx_favorites_wallpaper`，需补充
+
+**应处理阶段：** 执行阶段 — 数据库 schema 更新
+
+---
+
+## 四、UI/UX 相关陷阱
+
+### P-P11: 分页条状态同步
+
+**问题描述：**
+传统分页条需要同步：
+- 当前页码
+- 总页数
+- 是否有上一页/下一页
+- 页码输入框的值
+
+**潜在问题：**
+- 输入页码后按回车，值未同步到查询参数
+- 快速点击导致状态不一致
+- 总页数变化（数据增删）后页码未重置
+
+**预防策略：**
+- 使用单向数据流：页码由 Store/Composable 管理，UI 仅展示
+- 页码输入使用 `v-model.number` + `@change` 验证
+- 数据变化时检查页码有效性
+
+**应处理阶段：** 执行阶段 — 分页条组件实现
+
+---
+
+### P-P12: KeepAlive 与分页状态
+
+**问题描述：**
+当前 `OnlineWallpaper` 使用 `<KeepAlive>` 缓存组件状态。切换到传统分页后：
+- 返回页面时应保持之前页码？还是重置到第一页？
+- 缓存的 `wallpapers` 数据可能已过期
+
+**症状：**
+- 从详情页返回后显示旧数据
+- 页码与 URL 参数不同步（若实现 URL 同步）
+
+**预防策略：**
+- 明确 KeepAlive 行为：保持当前页码和数据
+- 提供"刷新"按钮清除缓存重新加载第一页
+- 或在 `onActivated` 中检查数据新鲜度
+
+**应处理阶段：** 规划阶段 — KeepAlive 行为定义
+
+---
+
+### P-P13: 侧边栏计数响应式更新
+
+**问题描述：**
+当前侧边栏显示 `{{ uniqueWallpaperCount }}` 和 `{{ getCollectionCount(collection.id) }}`，这些值依赖 `favorites` 数组。
+
+传统分页下，`favorites` 不再全量加载，而是分页获取。
+
+**症状：**
+- 切换页码后，侧边栏计数消失或为 0
+- 删除收藏后，计数未正确更新
+
+**预防策略：**
+- 分离"列表数据"与"元数据"：
+  - 列表数据：分页查询 `favorites` 表，返回 `FavoriteItem[]`
+  - 元数据：单独查询 `COUNT(*) GROUP BY collection_id`，返回计数
+- 或在 `collections` 表维护 `item_count` 冗余字段
+- 收藏增删时更新计数（SQL 触发器或应用层更新）
+
+**应处理阶段：** 执行阶段 — 元数据查询实现
+
+---
+
+## 五、架构与代码质量陷阱
+
+### P-P14: Composable 职责膨胀
+
+**问题描述：**
+`useWallpaperList` 当前职责：
+- API 请求
+- 分页逻辑（`fetch`, `loadMore`）
+- 缓存管理
+- 参数保存/加载
+
+传统分页改造后，还需增加：
+- 页码管理
+- 缓存失效
+- `is_favorite` 注入
+
+**症状：**
+- Composable 代码膨胀
+- 难以测试
+- 职责不清晰
+
+**预防策略：**
+- 提取 `usePageCache` 管理页面缓存
+- 提取 `usePagination` 管理页码状态
+- `useWallpaperList` 仅协调各子 composable
+
+**应处理阶段：** 规划阶段 — 模块划分
+
+---
+
+### P-P15: 类型定义碎片化
+
+**问题描述：**
+当前 `PageData` 和 `TotalPageData` 类型共存。传统分页可能引入更多类型变体。
+
+**症状：**
+- 类型转换频繁
+- 组件 props 类型不匹配
+- TypeScript 类型推断失败
+
+**预防策略：**
+- 统一类型定义文件
+- 明确各场景使用哪种类型
+- 避免运行时类型转换
+
+**应处理阶段：** 规划阶段 — 类型设计
+
+---
+
+## 六、测试与验证陷阱
+
+### P-P16: 边界条件覆盖不足
+
+**需要测试的边界条件：**
+
+| 场景 | 预期行为 |
+|------|----------|
+| 空收藏夹 | 显示空状态提示 |
+| 单页数据 | 分页条隐藏或禁用 |
+| 删除当前页最后一项 | 跳转到前一页 |
+| 快速切换页码 | 显示最后请求的页面 |
+| 收藏后立即切换页码 | 缓存状态正确更新 |
+| 网络错误 | 保持当前页数据，显示错误提示 |
+
+**预防策略：**
+- 执行阶段编写边界条件测试用例
+- 验证阶段逐一验证
+
+**应处理阶段：** 验证阶段
+
+---
+
+### P-P17: 现有功能回归
+
+**需要回归测试的功能：**
+
+| 功能 | 受影响原因 |
+|------|------------|
+| 收藏/取消收藏 | `is_favorite` 计算逻辑变更 |
+| 收藏夹切换 | 数据结构变更 |
+| ImagePreview 导航 | 列表数据结构变更 |
+| 下载功能 | 依赖壁纸数据 |
+| 设置背景 | 依赖壁纸数据 |
+
+**预防策略：**
+- 验证阶段运行完整回归测试
+- 特别关注 KeepAlive 缓存的页面
+
+**应处理阶段：** 验证阶段
+
+---
+
+## v6.0 关键阶段检查清单
+
+### 规划阶段必须完成
+
+- [ ] 确定 `PageData` vs `TotalPageData` 使用场景
+- [ ] 设计内存缓存数据结构与失效策略
+- [ ] 确定 `is_favorite` 注入时机与方式
+- [ ] 评估是否需要 `item_count` 冗余字段
+- [ ] 设计复合索引方案
+
+### 执行阶段重点验证
+
+- [ ] 页码越界处理
+- [ ] 并发请求竞态处理
+- [ ] 乐观更新实现
+- [ ] 分页条状态同步
+
+### 验证阶段必须覆盖
+
+- [ ] 边界条件测试
+- [ ] 现有功能回归测试
+- [ ] 性能测试（深度分页、大收藏集）
+
+---
+
+*Pitfalls research for: v6.0 传统分页重构*
+*Researched: 2026-05-04*
