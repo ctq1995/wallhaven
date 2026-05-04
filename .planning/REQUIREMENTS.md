@@ -1,118 +1,86 @@
-# Requirements: Wallhaven v6.0 — 传统分页重构
+# Requirements: Wallhaven v7.0 — 代码结构优化
 
 **Defined:** 2026-05-04
 **Core Value:** 收藏管理，分类随心 — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
-## v6.0 Requirements
+## v7.0 Requirements
 
-### Online Wallpaper Pagination
+### Dead Code Removal — Types
 
-- [ ] **ONLPAG-01**: User can see a pagination bar with page number navigation below the wallpaper grid
-- [ ] **ONLPAG-02**: Current page is highlighted in the pagination bar
-- [ ] **ONLPAG-03**: User can click "Previous"/"Next" buttons to navigate pages (disabled at boundaries)
-- [ ] **ONLPAG-04**: User can see total item count displayed (e.g., "共 1000 张")
-- [ ] **ONLPAG-05**: Page scrolls to top when switching pages
-- [ ] **ONLPAG-06**: Visited pages are cached in memory — switching back loads instantly without API request
-- [ ] **ONLPAG-07**: Cache is cleared when search filters change
-- [ ] **ONLPAG-08**: User can navigate pages using left/right arrow keys
+- [ ] **DEADTYPE-01**: Developer removes duplicate `src/types/favorite.ts` file (kept `src/types/domain/favorite.ts`)
+- [ ] **DEADTYPE-02**: Developer removes empty `src/types/ipc/index.ts` export file
+- [ ] **DEADTYPE-03**: Developer removes empty `src/types/api/index.ts` export file
 
-### Favorite Status Calculation
+### Dead Code Removal — Functions
 
-- [ ] **FAVSTA-01**: WallpaperItem includes `is_favorite` boolean field returned from Service layer
-- [ ] **FAVSTA-02**: `is_favorite` is computed by checking wallpaper ID against user's favorites in database
-- [ ] **FAVSTA-03**: Favorite status updates correctly after add/remove favorite operations
-- [ ] **FAVSTA-04**: Three-state heart indicator displays correctly (red=in default collection, blue=in custom collection, transparent=not favorited)
+- [ ] **DEADFUNC-01**: Developer removes unused `debounce` function from `src/utils/helpers.ts`
+- [ ] **DEADFUNC-02**: Developer removes unused `throttle` function from `src/utils/helpers.ts`
+- [ ] **DEADFUNC-03**: Developer removes unused `deepClone` function from `src/utils/helpers.ts`
+- [ ] **DEADFUNC-04**: Developer removes unused `filterEmptyValues` function from `src/utils/helpers.ts`
+- [ ] **DEADFUNC-05**: Developer removes unused `preloadImages` function from `src/utils/helpers.ts`
+- [ ] **DEADFUNC-06**: Developer removes unused `cleanupObject` function from `src/utils/helpers.ts`
 
-### Favorites Page Pagination
+### Dead Code Removal — Components
 
-- [ ] **FAVPAG-01**: User can scroll to bottom to load more favorites (infinite scroll)
-- [ ] **FAVPAG-02**: Favorites are loaded in pages of 24 items via SQLite LIMIT/OFFSET
-- [ ] **FAVPAG-03**: Loading indicator shows while fetching more items
-- [ ] **FAVPAG-04**: "没有更多" message displays when all favorites are loaded
-- [ ] **FAVPAG-05**: Scroll position is preserved when navigating to wallpaper detail and back
+- [ ] **DEADCOMP-01**: Developer removes test component `src/components/ElectronTest.vue`
+- [ ] **DEADCOMP-02**: Developer removes demo component `src/components/AlertDemo.vue`
+- [ ] **DEADCOMP-03**: Developer removes test view `src/views/APITest.vue`
+- [ ] **DEADCOMP-04**: Developer removes diagnostic view `src/views/Diagnostic.vue`
 
-### Sidebar Reactive Counts
+### Type Directory Organization
 
-- [ ] **SIDECT-01**: Collection count in sidebar updates immediately after adding a favorite
-- [ ] **SIDECT-02**: Collection count in sidebar updates immediately after removing a favorite
-- [ ] **SIDECT-03**: "全部收藏" count shows unique wallpaper count (not total favorite records)
-- [ ] **SIDECT-04**: Each collection's count shows number of wallpapers in that collection
-
-### Data Structure Refactoring
-
-- [ ] **DATAREF-01**: Replace `TotalPageData` with `PageData` for online wallpaper page
-- [ ] **DATAREF-02**: Store maintains `currentPageData` + `pageCache` Map structure
-- [ ] **DATAREF-03**: Favorites page continues using `TotalPageData` for infinite scroll accumulation
+- [ ] **TYPEORG-01**: Developer consolidates type definitions under `src/types/` directory
+- [ ] **TYPEORG-02**: Developer ensures all type imports use consistent path aliases (`@/types/...`)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| URL parameter sync | Deferred to future milestone — complexity of browser history + search state |
-| Page number input box | Click navigation sufficient for limited page counts |
-| Virtual pagination (frontend truncation) | Wallhaven API returns only 24 items per request — cannot paginate frontend |
-| Dual mode (infinite scroll + pagination toggle) | Interaction logic conflict, doubles state management complexity |
-| Favorites page traditional pagination | Infinite scroll is better suited for local data browsing |
+| HTTP 客户端合并 | 复杂度较高，风险中等，延后评估 |
+| 缓存逻辑提取 | 涉及多个 Service 层重构，复杂度较高 |
+| 大文件拆分 | `electron.client.ts` 结构清晰，暂不需要拆分 |
+| 功能行为变更 | 项目约束 — 保持所有现有功能不变 |
+| IPC 通道变更 | 需保持向后兼容 |
+| Store 结构变更 | 响应式风险 |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ONLPAG-01 | Phase 49 | Pending |
-| ONLPAG-02 | Phase 49 | Pending |
-| ONLPAG-03 | Phase 49 | Pending |
-| ONLPAG-04 | Phase 49 | Pending |
-| ONLPAG-05 | Phase 49 | Pending |
-| ONLPAG-06 | Phase 48 | Pending |
-| ONLPAG-07 | Phase 48 | Pending |
-| ONLPAG-08 | Phase 49 | Pending |
-| FAVSTA-01 | Phase 46 | Pending |
-| FAVSTA-02 | Phase 47 | Pending |
-| FAVSTA-03 | Phase 49 | Pending |
-| FAVSTA-04 | Phase 49 | Pending |
-| FAVPAG-01 | Phase 48, 50 | Pending |
-| FAVPAG-02 | Phase 46, 47 | Pending |
-| FAVPAG-03 | Phase 48, 50 | Pending |
-| FAVPAG-04 | Phase 48, 50 | Pending |
-| FAVPAG-05 | Phase 48, 50 | Pending |
-| SIDECT-01 | Phase 48 | Pending |
-| SIDECT-02 | Phase 48 | Pending |
-| SIDECT-03 | Phase 48 | Pending |
-| SIDECT-04 | Phase 48 | Pending |
-| DATAREF-01 | Phase 46 | Pending |
-| DATAREF-02 | Phase 46 | Pending |
-| DATAREF-03 | Phase 46 | Pending |
+| DEADTYPE-01 | Phase 51 | Pending |
+| DEADTYPE-02 | Phase 51 | Pending |
+| DEADTYPE-03 | Phase 51 | Pending |
+| DEADFUNC-01 | Phase 51 | Pending |
+| DEADFUNC-02 | Phase 51 | Pending |
+| DEADFUNC-03 | Phase 51 | Pending |
+| DEADFUNC-04 | Phase 51 | Pending |
+| DEADFUNC-05 | Phase 51 | Pending |
+| DEADFUNC-06 | Phase 51 | Pending |
+| DEADCOMP-01 | Phase 52 | Pending |
+| DEADCOMP-02 | Phase 52 | Pending |
+| DEADCOMP-03 | Phase 52 | Pending |
+| DEADCOMP-04 | Phase 52 | Pending |
+| TYPEORG-01 | Phase 53 | Pending |
+| TYPEORG-02 | Phase 53 | Pending |
 
 **Coverage:**
-- v6.0 requirements: 24 total
-- Mapped to phases: 24/24 ✓
+- v7.0 requirements: 15 total
+- Mapped to phases: 15/15 ✓
 
 ---
 
 ## Phase Mapping Summary
 
-### Phase 46: Infrastructure (5 requirements)
-- DATAREF-01, DATAREF-02, DATAREF-03 — Data structure types
-- FAVSTA-01 — is_favorite field type
-- FAVPAG-02 — LIMIT/OFFSET IPC infrastructure
+### Phase 51: Types & Helpers Cleanup (9 requirements)
+- DEADTYPE-01, DEADTYPE-02, DEADTYPE-03 — Remove duplicate/empty type files
+- DEADFUNC-01 to DEADFUNC-06 — Remove unused helper functions
 
-### Phase 47: Repository & Service (3 requirements)
-- FAVSTA-02 — is_favorite calculation logic
-- FAVPAG-02 — Repository pagination methods
+### Phase 52: Test Components Removal (4 requirements)
+- DEADCOMP-01 to DEADCOMP-04 — Remove test/demo components
 
-### Phase 48: Composable & Store (10 requirements)
-- ONLPAG-06, ONLPAG-07 — Page cache management
-- FAVPAG-01, FAVPAG-03, FAVPAG-04, FAVPAG-05 — Infinite scroll logic
-- SIDECT-01, SIDECT-02, SIDECT-03, SIDECT-04 — Reactive counts
-
-### Phase 49: View Layer - Pagination (8 requirements)
-- ONLPAG-01, ONLPAG-02, ONLPAG-03, ONLPAG-04, ONLPAG-05, ONLPAG-08 — Pagination UI
-- FAVSTA-03, FAVSTA-04 — Favorite status sync
-
-### Phase 50: Favorites Page (4 requirements)
-- FAVPAG-01, FAVPAG-03, FAVPAG-04, FAVPAG-05 — Infinite scroll integration
+### Phase 53: Type Directory Organization (2 requirements)
+- TYPEORG-01, TYPEORG-02 — Consolidate type definitions
 
 ---
 
 *Requirements defined: 2026-05-04*
-*Roadmap created: 2026-05-04*

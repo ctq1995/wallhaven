@@ -1,234 +1,155 @@
-# 研究摘要: v6.0 传统分页重构
+# Research Summary: v7.0 代码结构优化
 
-**Milestone:** v6.0 — 将在线壁纸页面从无限滚动改为传统分页条，我的收藏页面实现无限滚动分页
-**研究日期:** 2026-05-04
-**置信度:** HIGH
-
----
-
-## 一、里程碑范围概述
-
-### 核心变更
-
-| 页面 | 当前实现 | 目标实现 |
-|------|----------|----------|
-| **在线壁纸** | 无限滚动（scroll event 触发加载） | 传统分页条（页码导航） |
-| **我的收藏** | 全量加载 + 前端过滤 | 无限滚动分页（SQLite LIMIT/OFFSET） |
-| **收藏状态** | 前端计算（Set 查找） | Service 层注入（is_favorite 字段） |
-
-### 不在范围内
-
-- URL 参数同步（后续 milestone）
-- 页码输入框跳转
-- 虚拟分页/前端截断
-- 双模式切换（无限滚动 + 传统分页并存）
+**Milestone:** v7.0 代码结构优化
+**Researched:** 2026-05-04
+**Confidence:** HIGH
 
 ---
 
-## 二、技术栈决策
+## Executive Summary
 
-### 零依赖添加
+本研究识别了 Wallhaven 壁纸浏览器代码库中的优化机会。通过静态分析发现：
+- **死代码**：重复的类型定义、未使用的函数、测试组件
+- **重复代码**：潜在的缓存逻辑重复、HTTP 客户端重复
+- **优化机会**：类型定义简化、导入清理
 
-**核心理念：** 完全复用现有技术栈，无需引入第三方分页组件库。
+**核心发现：**
+1. `src/types/favorite.ts` 与 `src/types/domain/favorite.ts` 完全重复
+2. `src/utils/helpers.ts` 中 6 个函数未被使用
+3. 4 个测试/演示组件未在生产环境使用
+4. `electron.client.ts` 达 1106 行，但结构清晰暂不需要拆分
 
-| 类别 | 决策 | 理由 |
+---
+
+## Stack Additions
+
+**无需添加任何第三方工具。**
+
+使用现有工具即可完成优化：
+- TypeScript 编译器 — `noUnusedLocals`, `noUnusedParameters`
+- ESLint — `no-unused-vars` 规则
+- 手动代码审查
+
+---
+
+## Feature Categories
+
+### Table Stakes (必须包含)
+
+| 类别 | 发现 | 风险 |
 |------|------|------|
-| **分页 UI** | 自定义 Vue 组件 + 现有 CSS | 项目已有完整的 `.pagination` 样式（list.css 第 1822-1880 行） |
-| **SQLite 分页** | `LIMIT/OFFSET` 模式 | 收藏数据量小（< 500 条），性能完全足够 |
-| **内存缓存** | `reactive(Map<number, PageData>)` | Vue 响应式 + Map 结构简洁高效 |
-| **状态管理** | 现有 Pinia Store | 无需新增状态管理工具 |
+| 类型重复 | `favorite.ts` 两处重复定义 | 低 |
+| 未使用函数 | `helpers.ts` 中 6 个函数 | 低 |
+| 空导出文件 | `types/ipc/index.ts`, `types/api/index.ts` | 低 |
+| 测试组件 | `ElectronTest.vue`, `AlertDemo.vue`, `APITest.vue`, `Diagnostic.vue` | 低 |
 
-### 排除的第三方库
+### Differentiators (可选优化)
 
-| 库名 | 排除原因 |
-|------|----------|
-| vueuse/useOffsetPagination | 工具函数无 UI，项目无需此抽象层 |
-| laravel-vue-pagination | Laravel API 风格耦合，过度设计 |
-| vue-ads-pagination | 额外依赖，样式覆盖成本高于自写 |
-| Element Plus | 引入完整 UI 库仅为分页组件，过度依赖 |
+| 类别 | 发现 | 风险 |
+|------|------|------|
+| 大文件 | `electron.client.ts` 1106 行 | 中 |
+| HTTP 客户端 | `apiClient.ts` 与 `wallpaperApi.ts` 功能重复 | 中 |
+| 缓存逻辑 | Service 层缓存逻辑可提取复用 | 中 |
+| 类型位置 | 类型定义分散在多个目录 | 中 |
+
+### Out of Scope
+
+| 排除项 | 原因 |
+|--------|------|
+| 功能行为变更 | 项目约束 |
+| IPC 通道变更 | 需保持向后兼容 |
+| Store 结构变更 | 响应式风险 |
 
 ---
 
-## 三、功能分类
+## Architecture Insights
 
-### Table Stakes（用户期望的基础特性）
+### 推荐优化顺序（自底向上）
 
-| 功能 | 复杂度 | 说明 |
+| Phase | 层级 | 风险 | 预估时间 |
+|-------|------|------|----------|
+| 1 | View Layer | 最低 | 0.5 天 |
+| 2 | Types & Constants | 低 | 0.5 天 |
+| 3 | Composable Layer | 中 | 1 天 |
+| 4 | Service Layer | 中 | 1 天 |
+| 5 | Repository Layer | 中 | 0.5 天 |
+| 6 | Client Layer | 高 | 0.5 天 |
+
+### 依赖安全边界
+
+```
+SAFE TO REMOVE:
+├── 未使用的 import 语句
+├── 未使用的 ref/reactive
+├── 未使用的 CSS 类
+├── 未使用的工具函数
+└── 测试/演示组件
+
+NEEDS VERIFICATION:
+├── 类型定义（可能被多处引用）
+├── IPC 通道（可能被 preload 暴露）
+└── Store 方法（可能被多个 Composable 调用）
+
+DO NOT REMOVE:
+├── 公共 API 签名
+├── IPC Handler
+└── 类型导出
+```
+
+---
+
+## Key Pitfalls
+
+### Pitfall 1: 删除"看似未使用"的导出
+
+**问题：** TypeScript 编译器可能无法检测动态导入或外部引用
+**预防：** 全局搜索确认无引用后再删除
+
+### Pitfall 2: 类型变更导致隐式错误
+
+**问题：** 修改类型定义，编译通过但运行时错误
+**预防：** 类型变更后运行完整测试
+
+### Pitfall 3: Store 响应式断裂
+
+**问题：** Store 结构变更导致组件响应式失效
+**预防：** 不修改 Store 状态结构，仅移除未使用的方法
+
+### Pitfall 4: IPC 通道误删
+
+**问题：** IPC 通道通过字符串名称调用，静态分析无法发现
+**预防：** 检查 preload 暴露的方法和 handlers 注册
+
+---
+
+## Metrics
+
+### 优化前基线
+
+| 指标 | 当前值 | 目标 |
 |------|--------|------|
-| 页码导航 | MEDIUM | 新建 Pagination 组件，处理页码计算、省略号显示 |
-| 当前页高亮 | LOW | CSS 类切换 |
-| 上一页/下一页按钮 | LOW | 条件禁用 + 点击处理 |
-| 总条目数显示 | LOW | 从 API meta.total 获取 |
-| 页面切换时滚动到顶部 | LOW | `window.scrollTo(0, 0)` |
+| 重复类型定义 | 1 组 | 0 |
+| 未使用函数 | ~6 个 | 0 |
+| 空导出文件 | 2 个 | 0 |
+| 测试组件 | 4 个 | 0 |
 
-### Differentiators（差异化优势）
+### 验证方法
 
-| 功能 | 复杂度 | 价值主张 |
-|------|--------|----------|
-| 内存页面缓存 | MEDIUM | 已访问页面瞬间加载，无需重新请求 API |
-| 收藏状态 Service 层计算 | MEDIUM | 数据源一致，减少前端计算负担 |
-| 分页条响应式设计 | LOW | 小屏幕省略页码，大屏幕完整显示 |
-| 键盘快捷键导航 | LOW | 左右方向键翻页 |
-
-### Anti-Features（应避免的功能）
-
-| 功能 | 问题 |
-|------|------|
-| 无限滚动 + 传统分页并存 | 交互逻辑冲突，状态管理双倍复杂 |
-| URL 参数双向绑定 | 前进/后退按钮、搜索条件变化等边界情况复杂 |
-| 虚拟分页（前端截断） | Wallhaven API 每次仅返回 24 张，无法前端分页 |
-| 页码输入框跳转 | 总页数有限时点击跳转足够，增加 UI 复杂度 |
+1. TypeScript 编译：`npm run type-check`
+2. ESLint 检查：`npm run lint`
+3. 应用启动验证
+4. 功能回归测试
 
 ---
 
-## 四、推荐架构方案
+## Sources
 
-### 数据结构变更
-
-**Before（无限滚动）：**
-```typescript
-interface TotalPageData {
-  totalPage: number
-  currentPage: number
-  sections: PageData[]  // 累积的页面数据
-}
-```
-
-**After（传统分页）：**
-```typescript
-// 在线壁纸：单页数据 + 缓存
-interface WallpaperStoreState {
-  currentPageData: shallowRef<PageData | null>
-  pageCache: Map<number, PageData>  // composable 管理
-  currentPage: number
-  totalPage: number
-  total: number  // 总条目数
-}
-
-// 我的收藏：保持 TotalPageData（无限滚动）
-interface FavoritesState {
-  data: TotalPageData  // sections 累加
-  hasMore: boolean
-}
-```
-
-### 各层职责
-
-| 层级 | 在线壁纸变更 | 我的收藏变更 |
-|------|-------------|-------------|
-| **View** | 添加 PaginationBar，移除滚动监听 | 添加滚动监听，触发 loadMore |
-| **Composable** | 新增 goToPage(), pageCache | 新增 loadMore(), hasMore |
-| **Service** | 添加 is_favorite 后处理 | 添加分页方法 |
-| **Repository** | 无变更 | 添加分页 IPC 调用 |
-| **Client** | 无变更 | 添加 favoritesGetPaginated() |
-| **Handler** | 无变更 | 添加 LIMIT/OFFSET SQL handler |
-
-### is_favorite 字段注入
-
-**推荐方案：Service 层后处理**
-
-```typescript
-// WallpaperService.search()
-async search(params: GetParams | null) {
-  const result = await apiClient.get<WallpaperSearchResult>('/search', filteredParams, apiKey)
-
-  if (result.success && result.data) {
-    const favoriteIds = await this.getFavoriteIds()  // 复用 FavoritesService 缓存
-
-    const dataWithFavorite = result.data.data.map(item => ({
-      ...item,
-      is_favorite: favoriteIds.has(item.id)
-    }))
-
-    return { success: true, data: { data: dataWithFavorite, meta: result.data.meta } }
-  }
-  return result
-}
-```
+- `.planning/research/FEATURES.md` — 功能研究
+- `.planning/research/ARCHITECTURE.md` — 架构研究
+- `.planning/codebase/CONCERNS.md` — 技术债务清单
+- 代码库静态分析
 
 ---
 
-## 五、关键陷阱警示
-
-### 高风险陷阱（数据丢失/重写）
-
-| 陷阱 | 症状 | 预防策略 |
-|------|------|----------|
-| **页码越界** | 删除最后一条后显示空白页 | 删除后检查页码有效性，自动跳转前一页 |
-| **TotalPageData 混用** | 页码切换后数据错乱 | 明确区分使用场景，在线壁纸用 PageData，收藏用 TotalPageData |
-| **缓存失效策略缺失** | 收藏状态不更新 | 定义明确失效条件，收藏操作后更新缓存中的 is_favorite |
-
-### 中风险陷阱（性能/体验）
-
-| 陷阱 | 症状 | 预防策略 |
-|------|------|----------|
-| **并发请求竞态** | 快速切换后显示错误页面 | 使用请求序列号或 AbortController |
-| **LEFT JOIN 数据重复** | 同一壁纸显示多次 | 使用 EXISTS 子查询替代 |
-| **侧边栏计数不更新** | 删除后计数错误 | 分离列表数据与元数据查询 |
-
-### 低风险陷阱（代码质量）
-
-| 陷阱 | 症状 | 预防策略 |
-|------|------|----------|
-| **Composable 职责膨胀** | 代码难以测试 | 提取 usePageCache、usePagination 子 composable |
-| **类型定义碎片化** | 频繁类型转换 | 统一类型定义，明确使用场景 |
-
----
-
-## 六、构建顺序建议
-
-### Phase 1: 基础设施层
-1. `types/index.ts` — 添加 `is_favorite` 字段
-2. `favorites.handler.ts` — 添加分页和计数 handlers
-3. `ElectronClient.ts` — 添加新 IPC 调用
-
-### Phase 2: Repository & Service 层
-4. `FavoritesRepository.ts` — 添加分页方法
-5. `FavoritesService.ts` — 添加分页逻辑
-6. `WallpaperService.ts` — 添加 is_favorite 后处理
-
-### Phase 3: Composable & Store 层
-7. `WallpaperStore` — 替换数据结构
-8. `useWallpaperList.ts` — 添加分页逻辑和缓存
-9. `useFavorites.ts` — 添加无限滚动逻辑
-10. `useCollections.ts` — 添加响应式计数
-
-### Phase 4: View 层
-11. `PaginationBar.vue` — 新建分页条组件
-12. `OnlineWallpaper.vue` — 集成分页条，移除无限滚动
-13. `FavoritesPage.vue` — 添加无限滚动
-14. `CollectionSidebar.vue` — 响应式计数
-
----
-
-## 七、验收标准
-
-### 在线壁纸页面
-- [ ] 显示传统分页条（页码导航）
-- [ ] 显示总条目数（"共 X 张"）
-- [ ] 点击页码可跳转到对应页面
-- [ ] 已访问页面有缓存，不重复请求
-- [ ] 收藏状态正确显示（三态心形）
-- [ ] 收藏操作后状态正确同步
-
-### 我的收藏页面
-- [ ] 支持无限滚动分页
-- [ ] 侧边栏收藏数目实时更新
-- [ ] 滚动到底部自动加载更多
-- [ ] 加载完成显示"没有更多"
-
----
-
-## 八、来源索引
-
-| 文档 | 内容 |
-|------|------|
-| `STACK.md` | 技术栈决策、零依赖策略、SQLite 分页模式 |
-| `FEATURES.md` | 功能分类、依赖关系、MVP 定义、优先级矩阵 |
-| `ARCHITECTURE.md` | 现有架构分析、目标架构设计、数据流图、集成点清单 |
-| `PITFALLS.md` | 分页实现陷阱、SQL 层陷阱、性能陷阱、UI/UX 陷阱 |
-
----
-
-*研究摘要生成于: 2026-05-04*
-*Milestone: v6.0 传统分页重构*
+*Research summary for: v7.0 代码结构优化*
+*Researched: 2026-05-04*
