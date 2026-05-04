@@ -115,6 +115,7 @@ export interface ElectronAPI {
     offset: number
   }) => Promise<IpcResponse<any>>
   favoritesGetCounts: () => Promise<IpcResponse<Record<string, number>>>
+  favoritesGetStatusMap: (params: { wallpaperIds: string[] }) => Promise<IpcResponse<Record<string, 0 | 1 | 2>>>
 
   // 通用IPC通信
   send: (channel: string, data: any) => void
@@ -317,6 +318,10 @@ const electronAPI: ElectronAPI = {
   favoritesGetCounts: () => {
     console.log('[Preload] favoritesGetCounts called')
     return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_COUNTS)
+  },
+  favoritesGetStatusMap: (params) => {
+    console.log('[Preload] favoritesGetStatusMap called:', params.wallpaperIds.length, 'ids')
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_STATUS_MAP, params)
   },
 
   // 通用IPC通信（保留示例功能）

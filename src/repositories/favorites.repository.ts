@@ -6,7 +6,7 @@
  */
 
 import type { IpcResponse } from '@/shared/types/ipc'
-import type { Collection, FavoriteItem, FavoritesErrorCode } from '@/types'
+import type { Collection, FavoriteItem, FavoritesErrorCode, PaginationParams, PaginatedFavoritesResult } from '@/types'
 import { electronClient } from '@/clients'
 import { FavoritesErrorCodes } from '@/types'
 
@@ -219,6 +219,70 @@ export const favoritesRepository = {
       error: result.error ?? {
         code: FavoritesErrorCodes.STORAGE_ERROR,
         message: '获取壁纸收藏夹失败',
+      },
+    }
+  },
+
+  // ==================== 分页查询方法 ====================
+
+  /**
+   * 分页获取收藏项
+   * @param params 分页参数（limit, offset）+ 可选 collectionId
+   */
+  async getFavoritesPaginated(
+    params: PaginationParams & { collectionId?: string },
+  ): Promise<IpcResponse<PaginatedFavoritesResult>> {
+    const result = await electronClient.favoritesGetPaginated(params)
+    if (result.success) {
+      return result
+    }
+    return {
+      success: false,
+      data: { items: [], total: 0, hasMore: false },
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '分页获取收藏失败',
+      },
+    }
+  },
+
+  /**
+   * 获取所有收藏夹计数
+   * @returns { _total: 全部收藏去重计数, [collectionId]: 各收藏夹计数 }
+   */
+  async getCounts(): Promise<IpcResponse<Record<string, number>>> {
+    const result = await electronClient.favoritesGetCounts()
+    if (result.success) {
+      return result
+    }
+    return {
+      success: false,
+      data: { _total: 0 },
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '获取收藏计数失败',
+      },
+    }
+  },
+
+  /**
+   * 批量获取收藏状态映射
+   * @param wallpaperIds 壁纸 ID 列表
+   * @returns 状态映射 (0=未收藏, 1=默认收藏夹, 2=其他收藏夹)
+   */
+  async getFavoriteStatusMap(
+    wallpaperIds: string[],
+  ): Promise<IpcResponse<Record<string, 0 | 1 | 2>>> {
+    const result = await electronClient.favoritesGetStatusMap(wallpaperIds)
+    if (result.success) {
+      return result
+    }
+    return {
+      success: false,
+      data: {},
+      error: result.error ?? {
+        code: FavoritesErrorCodes.STORAGE_ERROR,
+        message: '获取收藏状态失败',
       },
     }
   },

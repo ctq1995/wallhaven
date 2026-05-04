@@ -6,7 +6,7 @@
 import type { IpcResponse } from '@/shared/types/ipc'
 import type { GetParams, CustomParams, WallpaperItem, WallpaperMeta } from '@/types'
 import { apiClient } from '@/clients'
-import { settingsRepository, wallpaperRepository } from '@/repositories'
+import { favoritesRepository, settingsRepository, wallpaperRepository } from '@/repositories'
 
 /**
  * 壁纸搜索结果
@@ -126,8 +126,22 @@ class WallpaperServiceImpl {
       // 调用 API
       const result = await apiClient.get<WallpaperSearchResult>('/search', filteredParams, apiKey)
 
-      // 成功时缓存结果
+      // 成功时注入 is_favorite 字段并缓存结果
       if (result.success && result.data) {
+        // 注入收藏状态
+        if (result.data.data.length > 0) {
+          const wallpaperIds = result.data.data.map((item) => item.id)
+          const statusMapResult = await favoritesRepository.getFavoriteStatusMap(wallpaperIds)
+
+          if (statusMapResult.success && statusMapResult.data) {
+            const statusMap = statusMapResult.data
+            result.data.data = result.data.data.map((item) => ({
+              ...item,
+              is_favorite: statusMap[item.id] ?? 0,
+            }))
+          }
+        }
+
         this.setCache(cacheKey, result.data)
       }
 

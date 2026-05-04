@@ -167,6 +167,7 @@ interface ElectronAPI {
     offset: number
   }) => Promise<IpcResponse<any>>
   favoritesGetCounts: () => Promise<IpcResponse<Record<string, number>>>
+  favoritesGetStatusMap: (params: { wallpaperIds: string[] }) => Promise<IpcResponse<Record<string, 0 | 1 | 2>>>
 
   // 通用IPC通信
   send: (channel: string, data: any) => void

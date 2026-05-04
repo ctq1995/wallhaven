@@ -609,27 +609,168 @@ export function registerFavoritesHandlers(): void {
   )
 
   /**
-   * 分页获取收藏（Phase 47 实现）
+   * 分页获取收藏
+   * - 传入 collectionId 时按收藏夹过滤
+   * - 不传时返回全部收藏（去重）
    */
   ipcMain.handle(
     'favorites-get-paginated',
     (_event, params: { collectionId?: string; limit: number; offset: number }) => {
-      logHandler('favorites-get-paginated', 'Not implemented - Phase 47', 'warn')
-      return {
-        success: false,
-        error: { code: 'NOT_IMPLEMENTED', message: 'Will be implemented in Phase 47' },
+      try {
+        const db = getDatabase()
+        const { collectionId, limit, offset } = params
+
+        let rows: Record<string, unknown>[]
+        let countRow: Record<string, unknown>
+
+        if (collectionId) {
+          // 按收藏夹查询
+          rows = db
+            .prepare(
+              `SELECT collection_id, wallpaper_id, wallpaper_data, added_at
+               FROM favorites
+               WHERE collection_id = ?
+               ORDER BY added_at DESC
+               LIMIT ? OFFSET ?`,
+            )
+            .all(collectionId, limit, offset) as Record<string, unknown>[]
+
+          countRow = db
+            .prepare('SELECT COUNT(*) as total FROM favorites WHERE collection_id = ?')
+            .get(collectionId) as Record<string, unknown>
+        } else {
+          // 全部收藏：去重查询
+          rows = db
+            .prepare(
+              `SELECT wallpaper_id, wallpaper_data, MAX(added_at) as added_at
+               FROM favorites
+               GROUP BY wallpaper_id
+               ORDER BY added_at DESC
+               LIMIT ? OFFSET ?`,
+            )
+            .all(limit, offset) as Record<string, unknown>[]
+
+          countRow = db
+            .prepare('SELECT COUNT(DISTINCT wallpaper_id) as total FROM favorites')
+            .get() as Record<string, unknown>
+        }
+
+        const total = (countRow?.total as number) ?? 0
+        const hasMore = offset + rows.length < total
+
+        const items = rows.map((row) => ({
+          collectionId: row.collection_id ?? null,
+          wallpaperId: row.wallpaper_id,
+          wallpaperData: JSON.parse(row.wallpaper_data as string),
+          addedAt: row.added_at,
+        }))
+
+        return { success: true, data: { items, total, hasMore } }
+      } catch (error: any) {
+        logHandler('favorites-get-paginated', `Error: ${error.message}`, 'error')
+        return {
+          success: false,
+          error: { code: 'FAVORITES_STORAGE_ERROR', message: error.message },
+        }
       }
     },
   )
 
   /**
-   * 获取所有收藏夹计数（Phase 47 实现）
+   * 获取所有收藏夹计数
+   * - _total: 全部收藏的唯一壁纸数（去重）
+   * - [collectionId]: 各收藏夹的壁纸数
    */
   ipcMain.handle('favorites-get-counts', () => {
-    logHandler('favorites-get-counts', 'Not implemented - Phase 47', 'warn')
-    return {
-      success: false,
-      error: { code: 'NOT_IMPLEMENTED', message: 'Will be implemented in Phase 47' },
+    try {
+      const db = getDatabase()
+
+      // 全部收藏去重计数
+      const totalRow = db
+        .prepare('SELECT COUNT(DISTINCT wallpaper_id) as total FROM favorites')
+        .get() as Record<string, unknown> | undefined
+
+      // 各收藏夹计数
+      const collectionRows = db
+        .prepare(
+          `SELECT collection_id, COUNT(*) as count
+           FROM favorites
+           GROUP BY collection_id`,
+        )
+        .all() as Record<string, unknown>[]
+
+      // 构建结果
+      const result: Record<string, number> = {
+        _total: (totalRow?.total as number) ?? 0,
+      }
+
+      for (const row of collectionRows) {
+        result[row.collection_id as string] = row.count as number
+      }
+
+      return { success: true, data: result }
+    } catch (error: any) {
+      logHandler('favorites-get-counts', `Error: ${error.message}`, 'error')
+      return {
+        success: false,
+        error: { code: 'FAVORITES_STORAGE_ERROR', message: error.message },
+      }
     }
   })
+
+  /**
+   * 批量获取收藏状态映射
+   * - 0: 未收藏
+   * - 1: 收藏到默认收藏夹（优先）
+   * - 2: 仅收藏到其他收藏夹
+   */
+  ipcMain.handle(
+    'favorites-get-status-map',
+    (_event, params: { wallpaperIds: string[] }) => {
+      try {
+        const db = getDatabase()
+        const { wallpaperIds } = params
+
+        // 空数组处理
+        if (wallpaperIds.length === 0) {
+          return { success: true, data: {} }
+        }
+
+        // 构建参数占位符
+        const placeholders = wallpaperIds.map(() => '?').join(',')
+
+        // 查询收藏状态
+        // MAX(CASE WHEN c.is_default = 1 THEN 1 ELSE 2 END) 确保默认收藏夹优先
+        const rows = db
+          .prepare(
+            `SELECT f.wallpaper_id,
+               MAX(CASE WHEN c.is_default = 1 THEN 1 ELSE 2 END) as status
+             FROM favorites f
+             INNER JOIN collections c ON f.collection_id = c.id
+             WHERE f.wallpaper_id IN (${placeholders})
+             GROUP BY f.wallpaper_id`,
+          )
+          .all(...wallpaperIds) as Record<string, unknown>[]
+
+        // 构建结果映射，初始化所有 ID 为未收藏
+        const statusMap: Record<string, 0 | 1 | 2> = {}
+        for (const id of wallpaperIds) {
+          statusMap[id] = 0
+        }
+
+        // 更新收藏状态
+        for (const row of rows) {
+          statusMap[row.wallpaper_id as string] = row.status as 1 | 2
+        }
+
+        return { success: true, data: statusMap }
+      } catch (error: any) {
+        logHandler('favorites-get-status-map', `Error: ${error.message}`, 'error')
+        return {
+          success: false,
+          error: { code: 'FAVORITES_STORAGE_ERROR', message: error.message },
+        }
+      }
+    },
+  )
 }

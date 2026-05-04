@@ -68,6 +68,7 @@ export const IPC_CHANNELS = {
   FAVORITES_GET_COLLECTIONS_FOR_WALLPAPER: 'favorites-get-collections-for-wallpaper',
   FAVORITES_GET_PAGINATED: 'favorites-get-paginated',
   FAVORITES_GET_COUNTS: 'favorites-get-counts',
+  FAVORITES_GET_STATUS_MAP: 'favorites-get-status-map',
 } as const
 
 // ==================== IPC 响应类型 ====================
@@ -357,6 +358,20 @@ export interface FavoritesGetPaginatedRequest {
  * value: 计数
  */
 export type FavoritesCountsResponse = Record<string, number>
+
+/**
+ * 批量获取收藏状态请求参数
+ */
+export interface FavoritesGetStatusMapRequest {
+  wallpaperIds: string[]
+}
+
+/**
+ * 收藏状态映射响应
+ * key: wallpaperId
+ * value: 0=未收藏, 1=收藏到默认收藏夹, 2=收藏到其他收藏夹
+ */
+export type FavoritesStatusMapResponse = Record<string, 0 | 1 | 2>
 
 // ==================== 类型守卫 ====================
 

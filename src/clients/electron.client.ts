@@ -519,6 +519,33 @@ class ElectronClientImpl {
     }
   }
 
+  /**
+   * 批量获取收藏状态映射
+   */
+  async favoritesGetStatusMap(
+    wallpaperIds: string[],
+  ): Promise<IpcResponse<Record<string, 0 | 1 | 2>>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Record<string, 0 | 1 | 2>>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetStatusMap({ wallpaperIds })
+      if (result.success) {
+        return { success: true, data: result.data as Record<string, 0 | 1 | 2> }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '获取收藏状态失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
   // ==================== 文件操作 ====================
 
   /**
