@@ -108,7 +108,7 @@ export function useFavorites(): UseFavoritesReturn {
       return false
     }
 
-    const { items, total, hasMore } = result.data!
+    const { items, total } = result.data!
     const totalPage = Math.ceil(total / limit)
 
     const pageData: PageData = {
