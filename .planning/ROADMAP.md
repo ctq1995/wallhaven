@@ -96,7 +96,7 @@
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 49. View Layer - Pagination Bar | v6.0 | 2/2 | ✅ Complete | 2026-05-04 |
 | 50. Favorites Page | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 51. Types & Helpers Cleanup | v7.0 | 0/1 | 🔵 Not Started | — |
+| 51. Types & Helpers Cleanup | v7.0 | 1/1 | 🔵 Planned | — |
 | 52. Test Components Removal | v7.0 | - | ✅ Complete | 2026-05-04 |
 | 53. Type Directory Organization | v7.0 | 0/1 | 🔵 Not Started | — |
 

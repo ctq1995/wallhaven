@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: 代码结构优化
 status: ready
-last_updated: "2026-05-04T17:00:00.000Z"
-last_activity: 2026-05-04 — Phase 51 context gathered, Phase 52 confirmed complete
+last_updated: "2026-05-04T18:00:00.000Z"
+last_activity: 2026-05-04 — Phase 51 planned (1 plan in 1 wave)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 0
+  total_plans: 1
   completed_plans: 0
   percent: 33
 ---
@@ -32,9 +32,9 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 ## Current Position
 
 Phase: 51 (Types & Helpers Cleanup)
-Plan: —
-Status: Context Gathered
-Last activity: 2026-05-04 — Phase 51 context gathered, Phase 52 confirmed complete
+Plan: 01 (1 plan in 1 wave)
+Status: PLANNED
+Last activity: 2026-05-04 — Phase 51 planned (1 plan in 1 wave)
 
 ---
 
@@ -53,14 +53,15 @@ Last activity: 2026-05-04 — Phase 51 context gathered, Phase 52 confirmed comp
 ## Phase Status
 
 ### Phase 51: Types & Helpers Cleanup
-**Status:** CONTEXT GATHERED
-**Requirements:** 9 (DEADTYPE-01~03, DEADFUNC-01~06)
+**Status:** PLANNED ✓
+**Plans:** 1 plan in 1 wave
+**Requirements:** 3 (DEADTYPE-01~03)
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| DEADTYPE-01 | Pending | Remove duplicate `src/types/favorite.ts` |
-| DEADTYPE-02 | Pending | Remove empty `src/types/ipc/index.ts` |
-| DEADTYPE-03 | Pending | Remove empty `src/types/api/index.ts` |
+| DEADTYPE-01 | ○ Pending | Remove duplicate `src/types/favorite.ts` |
+| DEADTYPE-02 | ○ Pending | Remove empty `src/types/ipc/index.ts` |
+| DEADTYPE-03 | ○ Pending | Remove empty `src/types/api/index.ts` |
 | DEADFUNC-01 | N/A | Keep `debounce` function (user decision) |
 | DEADFUNC-02 | N/A | Keep `throttle` function (user decision) |
 | DEADFUNC-03 | N/A | Keep `deepClone` function (user decision) |
@@ -111,12 +112,12 @@ Last activity: 2026-05-04 — Phase 51 context gathered, Phase 52 confirmed comp
 {
   "milestone": "v7.0",
   "phase": 51,
-  "phase_status": "CONTEXT GATHERED",
-  "last_action": "CONTEXT CREATED",
-  "next_action": "PLAN PHASE 51"
+  "phase_status": "PLANNED",
+  "last_action": "PLAN CREATED",
+  "next_action": "EXECUTE PHASE 51"
 }
 ```
 
 ---
 
-*Updated: 2026-05-04 — Phase 51 context gathered, Phase 52 confirmed complete*
+*Updated: 2026-05-04 — Phase 51 planned (1 plan in 1 wave)*
