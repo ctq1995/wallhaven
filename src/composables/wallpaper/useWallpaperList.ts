@@ -295,7 +295,10 @@ export function useWallpaperList(): UseWallpaperListReturn {
 
     // 创建新的数据对象以触发 shallowRef 更新
     const newData = [...currentData.data]
-    newData[itemIndex] = { ...newData[itemIndex], is_favorite: isFavorite as 0 | 1 | 2 }
+    const item = newData[itemIndex]
+    if (item) {
+      newData[itemIndex] = { ...item, is_favorite: isFavorite as 0 | 1 | 2 }
+    }
 
     store.currentPageData = {
       ...currentData,
@@ -309,8 +312,11 @@ export function useWallpaperList(): UseWallpaperListReturn {
       const cachedData = [...cachedPage.data]
       const cachedIndex = cachedData.findIndex((item) => item.id === wallpaperId)
       if (cachedIndex !== -1) {
-        cachedData[cachedIndex] = { ...cachedData[cachedIndex], is_favorite: isFavorite as 0 | 1 | 2 }
-        store.setCachedPage(page, { ...cachedPage, data: cachedData })
+        const cachedItem = cachedData[cachedIndex]
+        if (cachedItem) {
+          cachedData[cachedIndex] = { ...cachedItem, is_favorite: isFavorite as 0 | 1 | 2 }
+          store.setCachedPage(page, { ...cachedPage, data: cachedData })
+        }
       }
     }
   }

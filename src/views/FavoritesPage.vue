@@ -31,11 +31,11 @@
         <div class="collection-content">
           <div class="content-header">
             <h2>{{ selectedCollection?.name || '全部收藏' }}</h2>
-            <span class="wallpaper-count">{{ filteredFavorites.length }} 张壁纸</span>
+            <span class="wallpaper-count">{{ totalCount }} 张壁纸</span>
           </div>
 
           <div
-            v-if="filteredFavorites.length === 0"
+            v-if="currentPageData.data.length === 0 && !loading"
             class="empty-collection"
           >
             <i class="fas fa-images" />
@@ -55,16 +55,26 @@
             class="favorites-grid"
           >
             <FavoriteWallpaperCard
-              v-for="favorite in filteredFavorites"
-              :key="`${favorite.wallpaperId}-${favorite.collectionId}`"
-              :favorite="favorite"
-              :collection-names="getCollectionNamesForWallpaper(favorite.wallpaperId)"
+              v-for="wallpaper in currentPageData.data"
+              :key="wallpaper.id"
+              :wallpaper="wallpaper"
+              :collection-names="getCollectionNamesForWallpaper(wallpaper.id)"
               @preview="handlePreview"
               @download="handleDownload"
               @set-bg="handleSetBg"
               @unfavorite="handleCardUnfavorite"
             />
           </div>
+
+          <!-- Pagination bar -->
+          <PaginationBar
+            v-if="currentPageData.totalPage > 0"
+            :current-page="currentPageData.currentPage"
+            :total-pages="currentPageData.totalPage"
+            :total-count="totalCount"
+            :loading="loading"
+            @go-to-page="handleGoToPage"
+          />
         </div>
       </div>
     </div>
@@ -72,11 +82,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, shallowRef, onActivated } from 'vue'
+import { ref, computed, shallowRef, onActivated, onMounted, onUnmounted, watch } from 'vue'
 import CollectionSidebar from '@/components/favorites/CollectionSidebar.vue'
 import FavoriteWallpaperCard from '@/components/favorites/FavoriteWallpaperCard.vue'
 import ImagePreview from '@/components/ImagePreview.vue'
 import Alert from '@/components/Alert.vue'
+import PaginationBar from '@/components/PaginationBar.vue'
 import {
   useCollections,
   useFavorites,
@@ -93,7 +104,12 @@ const { collections, load: loadCollections } = useCollections()
 const {
   favorites,
   favoriteIds,
-  load: loadFavorites,
+  currentPageData,
+  totalCount,
+  loading,
+  goToPage,
+  refresh,
+  loadCounts,
   getCollectionsForWallpaper,
   remove,
 } = useFavorites()
@@ -112,27 +128,9 @@ const selectedCollection = computed(() => {
   return collections.value.find((c) => c.id === selectedCollectionId.value)
 })
 
-const filteredFavorites = computed(() => {
-  if (!selectedCollectionId.value) {
-    // "All favorites" mode - deduplicate by wallpaperId, sort newest first
-    const seen = new Set<string>()
-    return favorites.value
-      .slice()
-      .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
-      .filter((f) => {
-        if (seen.has(f.wallpaperId)) return false
-        seen.add(f.wallpaperId)
-        return true
-      })
-  }
-  return favorites.value
-    .filter((f) => f.collectionId === selectedCollectionId.value)
-    .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
-})
-
-// Extract WallpaperItem[] for ImagePreview navigation
+// Extract WallpaperItem[] from current page data for display and ImagePreview navigation
 const favoriteWallpaperList = computed<WallpaperItem[]>(() =>
-  filteredFavorites.value.map((f) => f.wallpaperData),
+  currentPageData.value.data,
 )
 
 // Current preview index for navigation
@@ -164,12 +162,26 @@ const getCollectionNamesForWallpaper = (wallpaperId: string): string[] => {
 }
 
 // Event handlers
-const handleCollectionSelect = (collectionId: string | null): void => {
+const handleCollectionSelect = async (collectionId: string | null): Promise<void> => {
   selectedCollectionId.value = collectionId
+  // Jump to page 1 with collection filter
+  await goToPage(1, collectionId ?? undefined)
 }
 
 const handleCardUnfavorite = async (wallpaperId: string): Promise<void> => {
   await unfavoriteWallpaper(wallpaperId)
+
+  // Edge case: if current page is empty and it's the last page, go to previous page
+  const currentPage = currentPageData.value.currentPage
+  const totalPage = currentPageData.value.totalPage
+
+  if (currentPage > 1 && currentPage >= totalPage) {
+    // Current page might be empty (last page), go to previous page
+    await goToPage(currentPage - 1, selectedCollectionId.value ?? undefined)
+  } else {
+    // Otherwise refresh current page
+    await refresh()
+  }
 }
 
 const handleToggleFavorite = (item: WallpaperItem): void => {
@@ -233,10 +245,57 @@ const handleSetBg = (imgItem: WallpaperItem): Promise<void> => {
   return setBgFromUrl(imgItem)
 }
 
+/**
+ * Pagination navigation handler
+ */
+const handleGoToPage = async (page: number): Promise<void> => {
+  await goToPage(page, selectedCollectionId.value ?? undefined)
+}
+
 // Lifecycle
 onActivated(async () => {
-  await Promise.all([loadCollections(), loadFavorites()])
+  await Promise.all([
+    loadCollections(),
+    goToPage(1, selectedCollectionId.value ?? undefined),
+    loadCounts(),
+  ])
 })
+
+// Keyboard navigation handler (mutually exclusive with ImagePreview)
+const handleKeydown = (event: KeyboardEvent): void => {
+  // Only respond when ImagePreview is closed
+  if (imgShow.value) return
+
+  const { currentPage, totalPage } = currentPageData.value
+
+  // Boundary check + navigation
+  if (event.key === 'ArrowLeft' && currentPage > 1) {
+    event.preventDefault()
+    goToPage(currentPage - 1, selectedCollectionId.value ?? undefined)
+  } else if (event.key === 'ArrowRight' && currentPage < totalPage) {
+    event.preventDefault()
+    goToPage(currentPage + 1, selectedCollectionId.value ?? undefined)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
+// Watch page change, trigger scroll
+watch(
+  () => currentPageData.value.currentPage,
+  (newPage, oldPage) => {
+    // Only scroll when page actually changes (exclude initialization)
+    if (oldPage !== undefined && oldPage !== 0 && newPage !== oldPage) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+)
 </script>
 
 <style scoped>

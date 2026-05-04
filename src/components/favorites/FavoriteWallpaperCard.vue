@@ -7,7 +7,7 @@
     <div
       class="favorite-badge"
       :title="'点击取消收藏'"
-      @click.stop="emit('unfavorite', props.favorite.wallpaperId)"
+      @click.stop="emit('unfavorite', props.wallpaper.id)"
     >
       <i class="fas fa-heart" />
       <span
@@ -19,29 +19,29 @@
     <!-- Thumbnail -->
     <img
       :src="thumbnailSrc"
-      :alt="favorite.wallpaperId"
+      :alt="wallpaper.id"
       loading="lazy"
       decoding="async"
     >
     <a
       class="preview"
-      @click.prevent="emit('preview', favorite.wallpaperData)"
+      @click.prevent="emit('preview', wallpaper)"
     />
 
     <!-- Bottom info bar -->
     <figcaption class="thumb-info">
-      <span class="wall-res">{{ formatResolution(favorite.wallpaperData.resolution) }}</span>
+      <span class="wall-res">{{ formatResolution(wallpaper.resolution) }}</span>
       <a
         class="wall-favs"
         title="设为壁纸"
-        @click="emit('set-bg', favorite.wallpaperData)"
+        @click="emit('set-bg', wallpaper)"
       >
         <i class="fas fa-fw fa-repeat-alt" />
       </a>
       <a
         class="thumb-tags-toggle tagged"
         title="下载"
-        @click="emit('download', favorite.wallpaperData)"
+        @click="emit('download', wallpaper)"
       >
         <i class="fas fa-fw fa-download" />
       </a>
@@ -52,19 +52,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { formatResolution } from '@/utils/helpers'
-import type { FavoriteItem } from '@/types'
+import type { WallpaperItem } from '@/types'
 
 interface Props {
-  favorite: FavoriteItem
+  wallpaper: WallpaperItem
   collectionNames: string[]
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  preview: [wallpaperData: FavoriteItem['wallpaperData']]
-  download: [wallpaperData: FavoriteItem['wallpaperData']]
-  'set-bg': [wallpaperData: FavoriteItem['wallpaperData']]
+  preview: [wallpaperData: WallpaperItem]
+  download: [wallpaperData: WallpaperItem]
+  'set-bg': [wallpaperData: WallpaperItem]
   unfavorite: [wallpaperId: string]
 }>()
 
@@ -72,7 +72,7 @@ const emit = defineEmits<{
 const collectionCount = computed(() => props.collectionNames.length)
 
 const thumbnailSrc = computed(() => {
-  return props.favorite.wallpaperData.thumbs?.small || props.favorite.wallpaperData.path
+  return props.wallpaper.thumbs?.small || props.wallpaper.path
 })
 </script>
 

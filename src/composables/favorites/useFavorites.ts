@@ -30,6 +30,9 @@ export interface UseFavoritesReturn {
   clearCache: () => void
   loadCounts: () => Promise<void>
 
+  // 全量加载（兼容旧接口）
+  load: () => Promise<void>
+
   // 收藏操作
   favorites: ComputedRef<FavoriteItem[]>
   favoriteIds: ComputedRef<Set<string>>
@@ -224,6 +227,9 @@ export function useFavorites(): UseFavoritesReturn {
     refresh,
     clearCache,
     loadCounts,
+
+    // 全量加载（兼容旧接口）
+    load,
 
     // 收藏操作
     favorites: computed(() => store.favorites),
