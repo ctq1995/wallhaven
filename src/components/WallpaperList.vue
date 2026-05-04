@@ -14,7 +14,7 @@
       >
         <header class="thumb-listing-page-header">
           <h2>
-            Page <span class="thumb-listing-page-num">{{ i + 1 }}</span> / {{ pageData.totalPage }}
+            Page <span class="thumb-listing-page-num">{{ pageData.currentPage }}</span> / {{ pageData.totalPage }}
           </h2>
           <span
             class="select-all-trigger"

@@ -136,6 +136,12 @@ export function useWallpaperList(): UseWallpaperListReturn {
     const cached = store.getCachedPage(page)
     if (cached) {
       store.currentPageData = { ...cached }
+      // 同步更新 totalPageData 以触发 WallpaperList 组件更新
+      store.totalPageData = {
+        sections: [cached],
+        totalPage: cached.totalPage,
+        currentPage: cached.currentPage,
+      }
       return true
     }
 
@@ -156,6 +162,12 @@ export function useWallpaperList(): UseWallpaperListReturn {
     const pageData = toPageData(result.data!)
     store.setCachedPage(page, pageData)
     store.currentPageData = { ...pageData }
+    // 同步更新 totalPageData 以触发 WallpaperList 组件更新
+    store.totalPageData = {
+      sections: [pageData],
+      totalPage: pageData.totalPage,
+      currentPage: pageData.currentPage,
+    }
     store.totalCount = result.data!.meta.total
     store.loading = false
     return true
