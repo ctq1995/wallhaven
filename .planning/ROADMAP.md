@@ -64,7 +64,7 @@
   1. TypeScript compiles without errors after type additions (is_favorite, PageCache, PaginationParams)
   2. New IPC handlers (favorites-get-paginated, favorites-count, favorites-count-by-collection) return correct results from SQLite
   3. ElectronClient methods successfully invoke new handlers with correct parameter passing
-**Plans**: TBD
+**Plans**: 46-PLAN.md (Wave 1, 11 tasks)
 
 ### Phase 47: Repository & Service Layer
 **Goal**: 实现 Repository 层分页查询和 Service 层收藏状态计算
@@ -115,11 +115,11 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 46. Infrastructure | v6.0 | 0/TBD | Ready to plan | - |
-| 47. Repository & Service Layer | v6.0 | 0/TBD | Ready to plan | - |
-| 48. Composable & Store Layer | v6.0 | 0/TBD | Ready to plan | - |
-| 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Ready to plan | - |
-| 50. Favorites Page | v6.0 | 0/TBD | Ready to plan | - |
+| 46. Infrastructure | v6.0 | 1/1 | Ready to execute | - |
+| 47. Repository & Service Layer | v6.0 | 0/TBD | Waiting | - |
+| 48. Composable & Store Layer | v6.0 | 0/TBD | Waiting | - |
+| 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Waiting | - |
+| 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
 
 ---
 
