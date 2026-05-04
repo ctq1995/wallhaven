@@ -3,7 +3,7 @@
  * 封装收藏项业务逻辑，提供内存缓存优化
  */
 
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import type { Collection, FavoriteItem, FavoritesData, WallpaperItem } from '@/types'
 import { favoritesRepository } from '@/repositories'
 

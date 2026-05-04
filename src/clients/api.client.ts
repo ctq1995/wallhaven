@@ -4,7 +4,7 @@
  */
 
 import axios, { type AxiosRequestConfig, type AxiosError } from 'axios'
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import { ErrorCodes } from '@/errors'
 
 /**

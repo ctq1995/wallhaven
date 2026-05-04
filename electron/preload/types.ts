@@ -5,7 +5,7 @@
  */
 
 // Re-export IPC channel constants from shared types
-export { IPC_CHANNELS } from '../../src/shared/types/ipc'
+export { IPC_CHANNELS } from '../../src/types/ipc'
 
 // Re-export IPC types for use in preload
 export type {
@@ -34,10 +34,10 @@ export type {
   CacheInfo,
   GetCacheInfoResponse,
   ClearCacheResponse,
-} from '../../src/shared/types/ipc'
+} from '../../src/types/ipc'
 
 // Import IPC_CHANNELS to build the whitelist
-import { IPC_CHANNELS } from '../../src/shared/types/ipc'
+import { IPC_CHANNELS } from '../../src/types/ipc'
 
 /**
  * Valid invoke channel names for whitelist validation

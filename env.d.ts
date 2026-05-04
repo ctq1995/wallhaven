@@ -2,53 +2,12 @@
 
 import type { Collection, FavoriteItem } from '@/types/domain/favorite'
 import type { WallpaperItem } from '@/types/index'
-
-// 下载进度数据类型
-interface DownloadProgressData {
-  taskId: string
-  progress: number
-  offset: number
-  speed: number
-  state: 'downloading' | 'paused' | 'waiting' | 'completed'
-  filePath?: string
-  totalSize?: number
-  error?: string
-}
-
-// 恢复下载参数类型
-interface ResumeDownloadParams {
-  taskId: string
-  url: string
-  filename: string
-  saveDir: string
-  offset: number
-}
-
-// 待恢复下载任务类型
-interface PendingDownload {
-  taskId: string
-  url: string
-  filename: string
-  saveDir: string
-  offset: number
-  totalSize: number
-  wallpaperId?: string
-  small?: string
-  resolution?: string
-  size?: number
-  createdAt: string
-  updatedAt: string
-}
-
-// IPC 响应类型
-interface IpcResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: {
-    code: string
-    message: string
-  }
-}
+import type {
+  DownloadProgressData,
+  IpcResponse,
+  PendingDownload,
+  ResumeDownloadParams,
+} from '@/types/ipc'
 
 // Electron API 类型声明
 interface ElectronAPI {

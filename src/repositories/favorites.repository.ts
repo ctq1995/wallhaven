@@ -5,7 +5,7 @@
  * 使用专用 IPC 通道进行目标 SQL 操作，不再读取/写入完整收藏数据 blob
  */
 
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import type { Collection, FavoriteItem, FavoritesErrorCode, PaginationParams, PaginatedFavoritesResult } from '@/types'
 import { electronClient } from '@/clients'
 import { FavoritesErrorCodes } from '@/types'

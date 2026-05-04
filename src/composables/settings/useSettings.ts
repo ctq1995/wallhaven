@@ -24,7 +24,7 @@ import { useWallpaperStore } from '@/stores/modules/wallpaper'
 import { settingsService } from '@/services'
 import { useAlert } from '@/composables'
 import type { AppSettings } from '@/types'
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 
 /**
  * useSettings 返回值接口

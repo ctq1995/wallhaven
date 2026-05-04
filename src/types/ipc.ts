@@ -2,8 +2,8 @@
  * IPC 通道名称常量和共享类型定义
  * 此文件可被主进程和渲染进程共同使用
  *
- * 主进程导入方式：import { IPC_CHANNELS } from '../../src/shared/types/ipc'
- * 渲染进程导入方式：import { IPC_CHANNELS } from '@/shared/types/ipc'
+ * 主进程导入方式：import { IPC_CHANNELS } from '../../src/types/ipc'
+ * 渲染进程导入方式：import { IPC_CHANNELS } from '@/types/ipc'
  */
 
 // ==================== IPC 通道名称常量 ====================

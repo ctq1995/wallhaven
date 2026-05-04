@@ -3,7 +3,7 @@
  * 管理应用设置的持久化存储
  */
 
-import type { IpcResponse, LocalFile } from '@/shared/types/ipc'
+import type { IpcResponse, LocalFile } from '@/types/ipc'
 import type { AppSettings } from '@/types'
 import { electronClient, STORAGE_KEYS } from '@/clients'
 

@@ -12,7 +12,7 @@ import type {
   PendingDownload,
   FavoritesGetPaginatedRequest,
   FavoritesCountsResponse,
-} from '@/shared/types/ipc'
+} from '@/types/ipc'
 import { ErrorCodes } from '@/errors'
 
 import type {

@@ -3,7 +3,7 @@
  * 封装壁纸相关的业务逻辑
  */
 
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import type { GetParams, CustomParams, WallpaperItem, WallpaperMeta } from '@/types'
 import { apiClient } from '@/clients'
 import { favoritesRepository, settingsRepository, wallpaperRepository } from '@/repositories'

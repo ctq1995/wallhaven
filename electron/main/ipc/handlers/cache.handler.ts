@@ -7,7 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { logHandler } from './base'
-import { IPC_CHANNELS } from '../../../../src/shared/types/ipc'
+import { IPC_CHANNELS } from '../../../../src/types/ipc'
 
 export function registerCacheHandlers(): void {
   /**

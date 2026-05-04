@@ -3,7 +3,7 @@
  * 管理壁纸查询参数的持久化存储和壁纸设置
  */
 
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import type { CustomParams } from '@/types'
 import { electronClient, STORAGE_KEYS } from '@/clients'
 

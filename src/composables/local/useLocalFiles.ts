@@ -24,7 +24,7 @@
 
 import { useAlert } from '@/composables'
 import { settingsService } from '@/services'
-import type { IpcResponse, LocalFile } from '@/shared/types/ipc'
+import type { IpcResponse, LocalFile } from '@/types/ipc'
 
 /**
  * useLocalFiles 返回值接口

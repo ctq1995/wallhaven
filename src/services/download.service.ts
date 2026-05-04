@@ -3,7 +3,7 @@
  * 封装下载业务逻辑，包括进度订阅、下载目录管理、已完成记录管理
  */
 
-import type { IpcResponse, PendingDownload, ResumeDownloadParams } from '@/shared/types/ipc'
+import type { IpcResponse, PendingDownload, ResumeDownloadParams } from '@/types/ipc'
 import type { FinishedDownloadItem } from '@/types'
 import { electronClient } from '@/clients'
 import { settingsRepository, downloadRepository } from '@/repositories'

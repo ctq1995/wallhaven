@@ -3,7 +3,7 @@
  * 封装设置相关的业务逻辑，提供内存缓存优化
  */
 
-import type { IpcResponse, LocalFile } from '@/shared/types/ipc'
+import type { IpcResponse, LocalFile } from '@/types/ipc'
 import type { AppSettings, WallpaperFit } from '@/types'
 import { settingsRepository, type CacheInfo, type ClearCacheResult } from '@/repositories'
 

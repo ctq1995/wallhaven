@@ -4,7 +4,7 @@
  */
 
 import { windowRepository } from '@/repositories'
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 
 /**
  * WindowService 实现类

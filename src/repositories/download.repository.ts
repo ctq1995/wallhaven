@@ -3,7 +3,7 @@
  * 管理已完成下载记录的持久化存储
  */
 
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 import type { FinishedDownloadItem } from '@/types'
 import { electronClient, STORAGE_KEYS } from '@/clients'
 

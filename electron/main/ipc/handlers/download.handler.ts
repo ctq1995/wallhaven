@@ -17,10 +17,10 @@ import {
   type PendingDownload,
   isResumeDownloadParams,
   isPendingDownload,
-} from '../../../../src/shared/types/ipc'
+} from '../../../../src/types/ipc'
 
 // /**
-//  * IPC Channel names (duplicated from shared/types/ipc.ts to avoid cross-directory imports)
+//  * IPC Channel names (duplicated from src/types/ipc.ts to avoid cross-directory imports)
 //  */
 // const IPC_CHANNELS = {
 //   START_DOWNLOAD_TASK: 'start-download-task',

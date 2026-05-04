@@ -4,7 +4,7 @@
  */
 
 import { electronClient } from '@/clients'
-import type { IpcResponse } from '@/shared/types/ipc'
+import type { IpcResponse } from '@/types/ipc'
 
 /**
  * WindowRepository 实现类
