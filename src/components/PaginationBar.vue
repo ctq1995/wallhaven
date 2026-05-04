@@ -163,7 +163,7 @@ function handlePageClick(page: number): void {
 </script>
 
 <style scoped>
-/* 分页容器 - 与 SearchBar .framed 风格一致 */
+/* 分页容器 - 去掉背景，让按钮直接浮在页面背景上 */
 .pagination {
   display: flex;
   align-items: center;
@@ -171,9 +171,6 @@ function handlePageClick(page: number): void {
   gap: 0.5em;
   padding: 0.5em;
   margin: 1em auto;
-  background-color: rgba(30, 30, 30, 0.5);
-  border-radius: 3px;
-  box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.33);
 }
 
 .pagination ul {
@@ -208,6 +205,7 @@ function handlePageClick(page: number): void {
 .pagination li a {
   background-color: #204650;
   background-image: linear-gradient(to bottom, #275660 0, #183640 100%);
+  box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.33);
 }
 
 .pagination li a:hover {
@@ -223,6 +221,7 @@ function handlePageClick(page: number): void {
 .pagination li.active span {
   background-color: #4a8050;
   background-image: linear-gradient(to bottom, #5a9060 0, #3a7040 100%);
+  box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.33);
   color: #fff;
   cursor: default;
 }
@@ -235,6 +234,7 @@ function handlePageClick(page: number): void {
   color: #666;
   cursor: default;
   opacity: 0.6;
+  box-shadow: none;
 }
 
 /* 省略号 */
@@ -242,6 +242,7 @@ function handlePageClick(page: number): void {
   background: transparent;
   color: #888;
   cursor: default;
+  box-shadow: none;
 }
 
 /* 总条目数 - 与分页器风格统一 */
