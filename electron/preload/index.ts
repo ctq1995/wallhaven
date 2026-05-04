@@ -109,6 +109,12 @@ export interface ElectronAPI {
   favoritesMove: (params: { wallpaperId: string; fromCollectionId: string; toCollectionId: string }) => Promise<IpcResponse<any>>
   favoritesIsFavorite: (params: { wallpaperId: string }) => Promise<IpcResponse<boolean>>
   favoritesGetCollectionsForWallpaper: (params: { wallpaperId: string }) => Promise<IpcResponse<any[]>>
+  favoritesGetPaginated: (params: {
+    collectionId?: string
+    limit: number
+    offset: number
+  }) => Promise<IpcResponse<any>>
+  favoritesGetCounts: () => Promise<IpcResponse<Record<string, number>>>
 
   // 通用IPC通信
   send: (channel: string, data: any) => void
@@ -303,6 +309,14 @@ const electronAPI: ElectronAPI = {
   favoritesGetCollectionsForWallpaper: (params) => {
     console.log('[Preload] favoritesGetCollectionsForWallpaper called:', params.wallpaperId)
     return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_COLLECTIONS_FOR_WALLPAPER, params)
+  },
+  favoritesGetPaginated: (params) => {
+    console.log('[Preload] favoritesGetPaginated called:', params)
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_PAGINATED, params)
+  },
+  favoritesGetCounts: () => {
+    console.log('[Preload] favoritesGetCounts called')
+    return ipcRenderer.invoke(IPC_CHANNELS.FAVORITES_GET_COUNTS)
   },
 
   // 通用IPC通信（保留示例功能）
