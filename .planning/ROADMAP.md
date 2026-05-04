@@ -45,7 +45,7 @@
 <details>
 <summary>🔵 v7.0 代码结构优化 (Phases 51-53) — IN PROGRESS</summary>
 
-- [ ] **Phase 51: Types & Helpers Cleanup** — 删除重复类型、空导出文件（Phase 52 合并完成）
+- [x] **Phase 51: Types & Helpers Cleanup** — 删除重复类型、空导出文件 ✅ 2026-05-04
 - [x] **Phase 52: Test Components Removal** — 删除测试/演示组件 ✅ 2026-05-04（组件已在之前删除）
 - [ ] **Phase 53: Type Directory Organization** — 整理类型定义目录结构
 
@@ -96,7 +96,7 @@
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 49. View Layer - Pagination Bar | v6.0 | 2/2 | ✅ Complete | 2026-05-04 |
 | 50. Favorites Page | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 51. Types & Helpers Cleanup | v7.0 | 1/1 | 🔵 Planned | — |
+| 51. Types & Helpers Cleanup | v7.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 52. Test Components Removal | v7.0 | - | ✅ Complete | 2026-05-04 |
 | 53. Type Directory Organization | v7.0 | 0/1 | 🔵 Not Started | — |
 
@@ -108,15 +108,15 @@
 
 | Requirement | Phase | Description | Status |
 |-------------|-------|-------------|--------|
-| DEADTYPE-01 | 51 | Remove duplicate `src/types/favorite.ts` | Pending |
-| DEADTYPE-02 | 51 | Remove empty `src/types/ipc/index.ts` | Pending |
-| DEADTYPE-03 | 51 | Remove empty `src/types/api/index.ts` | Pending |
-| DEADFUNC-01 | 51 | Remove unused `debounce` function | Pending |
-| DEADFUNC-02 | 51 | Remove unused `throttle` function | Pending |
-| DEADFUNC-03 | 51 | Remove unused `deepClone` function | Pending |
-| DEADFUNC-04 | 51 | Remove unused `filterEmptyValues` function | Pending |
-| DEADFUNC-05 | 51 | Remove unused `preloadImages` function | Pending |
-| DEADFUNC-06 | 51 | Remove unused `cleanupObject` function | Pending |
+| DEADTYPE-01 | 51 | Remove duplicate `src/types/favorite.ts` | ✅ Done |
+| DEADTYPE-02 | 51 | Remove empty `src/types/ipc/index.ts` | ✅ Done |
+| DEADTYPE-03 | 51 | Remove empty `src/types/api/index.ts` | ✅ Done |
+| DEADFUNC-01 | 51 | Remove unused `debounce` function | N/A (kept) |
+| DEADFUNC-02 | 51 | Remove unused `throttle` function | N/A (kept) |
+| DEADFUNC-03 | 51 | Remove unused `deepClone` function | N/A (kept) |
+| DEADFUNC-04 | 51 | Remove unused `filterEmptyValues` function | N/A (kept) |
+| DEADFUNC-05 | 51 | Remove unused `preloadImages` function | N/A (kept) |
+| DEADFUNC-06 | 51 | Remove unused `cleanupObject` function | N/A (kept) |
 | DEADCOMP-01 | 52 | Remove `src/components/ElectronTest.vue` | ✅ Done |
 | DEADCOMP-02 | 52 | Remove `src/components/AlertDemo.vue` | ✅ Done |
 | DEADCOMP-03 | 52 | Remove `src/views/APITest.vue` | ✅ Done |
@@ -126,7 +126,7 @@
 
 **Coverage:**
 - v7.0 requirements: 15 total
-- Completed: 4/15 (27% — Phase 52 complete)
+- Completed: 7/15 (47% — Phases 51 & 52 complete)
 
 ---
 
