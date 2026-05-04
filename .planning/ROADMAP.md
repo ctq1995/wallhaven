@@ -22,7 +22,7 @@
 - ✅ **v4.4 收藏状态小红心与取消收藏** -- Phase 39 (shipped 2026-05-02)
 - ✅ **v4.5 在线壁纸页面小红心状态** -- Phase 40 (shipped 2026-05-02)
 - ✅ **v5.0 electron-store 到 SQLite 迁移** -- Phases 41-45 (shipped 2026-05-03)
-- 🚧 **v6.0 传统分页重构** -- Phases 46-50 (planning)
+- ✅ **v6.0 传统分页重构** -- Phases 46-50 (shipped 2026-05-04)
 
 ---
 
@@ -42,13 +42,13 @@
 ---
 
 <details>
-<summary>🚧 v6.0 传统分页重构 (Phases 46-50) — IN PROGRESS</summary>
+<summary>✅ v6.0 传统分页重构 (Phases 46-50) — SHIPPED 2026-05-04</summary>
 
 - [x] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods ✅ 2026-05-04
 - [x] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection ✅ 2026-05-04
 - [x] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts ✅ 2026-05-04
 - [x] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration ✅ 2026-05-04
-- [ ] **Phase 50: Favorites Page Pagination** — 传统分页 UI，复用 PaginationBar 组件
+- [x] **Phase 50: Favorites Page Pagination** — 传统分页 UI，复用 PaginationBar 组件 ✅ 2026-05-04
 
 </details>
 
@@ -100,17 +100,17 @@
   - [x] 49-01-PLAN.md — PaginationBar 组件与分页导航 ✅
   - [x] 49-02-PLAN.md — 收藏状态同步 ✅
 
-### Phase 50: Favorites Page Pagination
+### Phase 50: Favorites Page Pagination ✅
 **Goal**: 实现收藏页面的传统分页 UI，复用 PaginationBar 组件，与在线壁纸页面保持一致
 **Depends on**: Phase 48, Phase 49
 **Requirements**: FAVPAG-01 (updated), FAVPAG-03, FAVPAG-04, FAVPAG-05
 **Success Criteria** (what must be TRUE):
-  1. Pagination bar displays correctly with page numbers, ellipsis, and total count
-  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page
-  3. Switching collection filter resets to page 1 and clears page cache
-  4. Unfavoriting removes item from current page and updates counts
-  5. Navigating to detail page and back preserves scroll position
-**Plans**: TBD
+  1. Pagination bar displays correctly with page numbers, ellipsis, and total count ✅
+  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page ✅
+  3. Switching collection filter resets to page 1 and clears page cache ✅
+  4. Unfavoriting removes item from current page and updates counts ✅
+  5. Navigating to detail page and back preserves scroll position ✅
+**Plans**: 50-PLAN.md (Wave 1, 6 tasks) — Completed 2026-05-04
 
 ---
 
@@ -122,7 +122,7 @@
 | 47. Repository & Service Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 49. View Layer - Pagination Bar | v6.0 | 2/2 | ✅ Complete | 2026-05-04 |
-| 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
+| 50. Favorites Page | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 
 ---
 
@@ -144,11 +144,11 @@
 | FAVSTA-02 | 47 | is_favorite computed from database | ✅ Complete |
 | FAVSTA-03 | 49 | Favorite status updates after operations | ✅ Complete |
 | FAVSTA-04 | 49 | Three-state heart indicator | ✅ Complete |
-| FAVPAG-01 | 48, 50 | Infinite scroll for favorites | Partial (48 done) |
+| FAVPAG-01 | 48, 50 | Traditional pagination for favorites | ✅ Complete |
 | FAVPAG-02 | 46, 47 | SQLite LIMIT/OFFSET pagination | ✅ Complete |
-| FAVPAG-03 | 48, 50 | Loading indicator while fetching | Partial (48 done) |
-| FAVPAG-04 | 48, 50 | "没有更多" message when complete | Partial (48 done) |
-| FAVPAG-05 | 48, 50 | Scroll position preserved on back | Partial (48 done) |
+| FAVPAG-03 | 48, 50 | Loading indicator while fetching | ✅ Complete |
+| FAVPAG-04 | 48, 50 | "没有更多" message when complete | ✅ Complete |
+| FAVPAG-05 | 48, 50 | Scroll position preserved on back | ✅ Complete |
 | SIDECT-01 | 48 | Sidebar count updates on add | ✅ Complete |
 | SIDECT-02 | 48 | Sidebar count updates on remove | ✅ Complete |
 | SIDECT-03 | 48 | "全部收藏" shows unique count | ✅ Complete |
@@ -159,8 +159,7 @@
 
 **Coverage:**
 - v6.0 requirements: 24 total
-- Completed: 20/24 (83%)
-- Remaining: 4 (FAVPAG-01, 03, 04, 05 partial - Phase 50)
+- Completed: 24/24 (100%)
 
 ---
 
@@ -201,4 +200,4 @@ Phase 49        Phase 50                │
 
 ---
 
-*Roadmap updated: 2026-05-04 — v6.0 roadmap created*
+*Roadmap updated: 2026-05-04 — v6.0 传统分页重构 complete*
