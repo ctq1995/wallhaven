@@ -161,3 +161,95 @@ function handlePageClick(page: number): void {
   emit('go-to-page', page)
 }
 </script>
+
+<style scoped>
+/* 分页容器 - 与 SearchBar .framed 风格一致 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  padding: 0.5em;
+  margin: 1em auto;
+  background-color: rgba(30, 30, 30, 0.5);
+  border-radius: 3px;
+  box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.33);
+}
+
+.pagination ul {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  box-shadow: none;
+}
+
+.pagination li {
+  display: inline-block;
+}
+
+.pagination li a,
+.pagination li span {
+  display: inline-block;
+  line-height: 2em;
+  min-width: 2.5em;
+  padding: 0 0.5em;
+  color: #ddd;
+  text-shadow: -1px -1px 0 #000;
+  text-align: center;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* 普通按钮 - 与 SearchBar .button 风格一致 */
+.pagination li a {
+  background-color: #204650;
+  background-image: linear-gradient(to bottom, #275660 0, #183640 100%);
+}
+
+.pagination li a:hover {
+  background-image: linear-gradient(to bottom, #2a6470 0, #1a4050 100%);
+}
+
+.pagination li a:active {
+  background-image: linear-gradient(to bottom, #183640 0, #275660 100%);
+}
+
+/* 激活状态 - 使用高亮渐变 */
+.pagination li.active a,
+.pagination li.active span {
+  background-color: #4a8050;
+  background-image: linear-gradient(to bottom, #5a9060 0, #3a7040 100%);
+  color: #fff;
+  cursor: default;
+}
+
+/* 禁用状态 */
+.pagination li.disabled a,
+.pagination li.disabled span {
+  background-color: rgba(40, 40, 40, 0.5);
+  background-image: none;
+  color: #666;
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 省略号 */
+.pagination li span {
+  background: transparent;
+  color: #888;
+  cursor: default;
+}
+
+/* 总条目数 - 与分页器风格统一 */
+.pagination-notice {
+  color: #aaa;
+  font-weight: 500;
+  font-size: 0.9em;
+  margin-left: 1em;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+</style>
