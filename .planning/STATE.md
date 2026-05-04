@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v6.0
 milestone_name: 传统分页重构
 status: planning
-last_updated: "2026-05-04T14:30:00.000Z"
-last_activity: 2026-05-04 — Milestone v6.0 started
+last_updated: "2026-05-04T15:00:00.000Z"
+last_activity: 2026-05-04 — Roadmap created for v6.0
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,8 +16,8 @@ progress:
 # Project State
 
 > Updated: 2026-05-04
-> Current: Milestone v6.0 — Defining requirements
-> Status: Planning
+> Current: Milestone v6.0 — 传统分页重构
+> Status: Planning (Roadmap created)
 
 ---
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 46 (Infrastructure) — Ready to plan
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-04 — Milestone v6.0 started
+Status: Roadmap created, awaiting /gsd-plan-phase 46
+Last activity: 2026-05-04 — Roadmap created for v6.0
 
 ---
 
@@ -42,7 +42,7 @@ Last activity: 2026-05-04 — Milestone v6.0 started
 
 | Metric | Value |
 |--------|-------|
-| Total phases (v6.0) | 0 |
+| Total phases (v6.0) | 5 |
 | Completed phases | 0 |
 | Total plans | 0 |
 | Completed plans | 0 |
@@ -50,34 +50,40 @@ Last activity: 2026-05-04 — Milestone v6.0 started
 
 ---
 
-## Accumulated Context
-
-### v6.0 Milestone — 传统分页重构
+## Milestone Summary: v6.0 传统分页重构
 
 **Goal:** 将在线壁纸页面从无限滚动改为传统分页条，为我的收藏页面实现无限滚动分页，通过数据库层计算收藏状态
 
-**Target features:**
+### Phase Overview
 
-#### 在线壁纸页面
-- 传统分页条 UI（页码导航，24张/页）
-- 显示总条目数（"共 X 张"）
-- 用 PageData 替换 TotalPageData 数据结构
-- 内存缓存已加载页面数据
-- 收藏状态由数据库查询返回（is_favorite 字段）
-- 不同步 URL 参数
+| Phase | Focus | Requirements | Status |
+|-------|-------|--------------|--------|
+| 46 | Infrastructure | 5 | Ready to plan |
+| 47 | Repository & Service | 3 | Waiting |
+| 48 | Composable & Store | 10 | Waiting |
+| 49 | View Layer - Pagination | 8 | Waiting |
+| 50 | Favorites Page | 4 | Waiting |
 
-#### 我的收藏页面
-- 无限滚动分页 UI
-- SQLite LIMIT/OFFSET 分页查询
-- 侧边栏收藏数目响应式更新
-- 仅本地数据库数据源
+### Key Changes
 
-**Key context:**
-- 当前在线壁纸使用 TotalPageData 无限滚动累积
-- 收藏页面当前一次性加载所有数据，无分页
-- 需要新增分页相关 IPC 通道
-- 收藏状态当前由前端 Set 计算，改为 SQL JOIN 返回
+| 页面 | 当前实现 | 目标实现 |
+|------|----------|----------|
+| 在线壁纸 | 无限滚动 | 传统分页条 |
+| 我的收藏 | 全量加载 | 无限滚动分页 |
+| 收藏状态 | 前端 Set 计算 | Service 层注入 |
 
 ---
 
-*Updated: 2026-05-04 — Milestone v6.0 started*
+## Accumulated Context
+
+### v6.0 Key Decisions (to be filled during execution)
+
+| 决策 | 理由 | 结果 |
+|------|------|------|
+| 零依赖添加 | 复用现有 CSS 和技术栈 | 待验证 |
+| Service 层 is_favorite 注入 | 数据源一致，减少前端负担 | 待验证 |
+| Map<number, PageData> 缓存 | Vue 响应式 + 简洁高效 | 待验证 |
+
+---
+
+*Updated: 2026-05-04 — Roadmap created for v6.0*

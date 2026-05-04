@@ -58,34 +58,61 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ONLPAG-01 | TBD | Pending |
-| ONLPAG-02 | TBD | Pending |
-| ONLPAG-03 | TBD | Pending |
-| ONLPAG-04 | TBD | Pending |
-| ONLPAG-05 | TBD | Pending |
-| ONLPAG-06 | TBD | Pending |
-| ONLPAG-07 | TBD | Pending |
-| ONLPAG-08 | TBD | Pending |
-| FAVSTA-01 | TBD | Pending |
-| FAVSTA-02 | TBD | Pending |
-| FAVSTA-03 | TBD | Pending |
-| FAVSTA-04 | TBD | Pending |
-| FAVPAG-01 | TBD | Pending |
-| FAVPAG-02 | TBD | Pending |
-| FAVPAG-03 | TBD | Pending |
-| FAVPAG-04 | TBD | Pending |
-| FAVPAG-05 | TBD | Pending |
-| SIDECT-01 | TBD | Pending |
-| SIDECT-02 | TBD | Pending |
-| SIDECT-03 | TBD | Pending |
-| SIDECT-04 | TBD | Pending |
-| DATAREF-01 | TBD | Pending |
-| DATAREF-02 | TBD | Pending |
-| DATAREF-03 | TBD | Pending |
+| ONLPAG-01 | Phase 49 | Pending |
+| ONLPAG-02 | Phase 49 | Pending |
+| ONLPAG-03 | Phase 49 | Pending |
+| ONLPAG-04 | Phase 49 | Pending |
+| ONLPAG-05 | Phase 49 | Pending |
+| ONLPAG-06 | Phase 48 | Pending |
+| ONLPAG-07 | Phase 48 | Pending |
+| ONLPAG-08 | Phase 49 | Pending |
+| FAVSTA-01 | Phase 46 | Pending |
+| FAVSTA-02 | Phase 47 | Pending |
+| FAVSTA-03 | Phase 49 | Pending |
+| FAVSTA-04 | Phase 49 | Pending |
+| FAVPAG-01 | Phase 48, 50 | Pending |
+| FAVPAG-02 | Phase 46, 47 | Pending |
+| FAVPAG-03 | Phase 48, 50 | Pending |
+| FAVPAG-04 | Phase 48, 50 | Pending |
+| FAVPAG-05 | Phase 48, 50 | Pending |
+| SIDECT-01 | Phase 48 | Pending |
+| SIDECT-02 | Phase 48 | Pending |
+| SIDECT-03 | Phase 48 | Pending |
+| SIDECT-04 | Phase 48 | Pending |
+| DATAREF-01 | Phase 46 | Pending |
+| DATAREF-02 | Phase 46 | Pending |
+| DATAREF-03 | Phase 46 | Pending |
 
 **Coverage:**
 - v6.0 requirements: 24 total
-- Mapped to phases: 0/24 ⚠️
+- Mapped to phases: 24/24 ✓
 
 ---
+
+## Phase Mapping Summary
+
+### Phase 46: Infrastructure (5 requirements)
+- DATAREF-01, DATAREF-02, DATAREF-03 — Data structure types
+- FAVSTA-01 — is_favorite field type
+- FAVPAG-02 — LIMIT/OFFSET IPC infrastructure
+
+### Phase 47: Repository & Service (3 requirements)
+- FAVSTA-02 — is_favorite calculation logic
+- FAVPAG-02 — Repository pagination methods
+
+### Phase 48: Composable & Store (10 requirements)
+- ONLPAG-06, ONLPAG-07 — Page cache management
+- FAVPAG-01, FAVPAG-03, FAVPAG-04, FAVPAG-05 — Infinite scroll logic
+- SIDECT-01, SIDECT-02, SIDECT-03, SIDECT-04 — Reactive counts
+
+### Phase 49: View Layer - Pagination (8 requirements)
+- ONLPAG-01, ONLPAG-02, ONLPAG-03, ONLPAG-04, ONLPAG-05, ONLPAG-08 — Pagination UI
+- FAVSTA-03, FAVSTA-04 — Favorite status sync
+
+### Phase 50: Favorites Page (4 requirements)
+- FAVPAG-01, FAVPAG-03, FAVPAG-04, FAVPAG-05 — Infinite scroll integration
+
+---
+
 *Requirements defined: 2026-05-04*
+*Roadmap created: 2026-05-04*
