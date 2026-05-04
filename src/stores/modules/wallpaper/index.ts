@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, reactive, shallowRef } from 'vue'
-import type { TotalPageData, GetParams, CustomParams, AppSettings, WallpaperFit } from '@/types'
+import type { TotalPageData, GetParams, CustomParams, AppSettings, WallpaperFit, PageData, PageCache } from '@/types'
 import { settingsService } from '@/services'
 
 /**
@@ -25,6 +25,19 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     sections: [],
   })
 
+  /** 当前页数据（传统分页） */
+  const currentPageData = shallowRef<PageData>({
+    data: [],
+    totalPage: 0,
+    currentPage: 0,
+  })
+
+  /** 页面缓存（最多 5 页） */
+  const pageCache = shallowRef<PageCache>(new Map())
+
+  /** 总条目数 */
+  const totalCount = ref<number>(0)
+
   /** 加载状态 */
   const loading = ref<boolean>(false)
 
@@ -47,8 +60,49 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
    */
   function resetState(): void {
     totalPageData.value = { totalPage: 0, currentPage: 0, sections: [] }
+    currentPageData.value = { data: [], totalPage: 0, currentPage: 0 }
+    pageCache.value = new Map()
+    totalCount.value = 0
     queryParams.value = null
     error.value = false
+  }
+
+  /**
+   * 创建空的页面数据
+   */
+  function createEmptyPageData(): PageData {
+    return { data: [], totalPage: 0, currentPage: 0 }
+  }
+
+  /**
+   * 清空页面缓存
+   */
+  function clearPageCache(): void {
+    pageCache.value = new Map()
+  }
+
+  /**
+   * 获取缓存的页面数据
+   */
+  function getCachedPage(page: number): PageData | undefined {
+    return pageCache.value.get(page)
+  }
+
+  /**
+   * 设置页面缓存（FIFO 淘汰，上限 5 页）
+   */
+  function setCachedPage(page: number, data: PageData): void {
+    const cache = pageCache.value
+    // FIFO 淘汰：超过 5 页且不是更新现有页面时删除最旧的
+    if (cache.size >= 5 && !cache.has(page)) {
+      const firstKey = cache.keys().next().value
+      if (firstKey !== undefined) {
+        cache.delete(firstKey)
+      }
+    }
+    cache.set(page, data)
+    // 触发响应式更新
+    pageCache.value = cache
   }
 
   /**
@@ -69,6 +123,9 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
   return {
     // 状态
     totalPageData,
+    currentPageData,
+    pageCache,
+    totalCount,
     loading,
     error,
     queryParams,
@@ -78,5 +135,9 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     // 方法
     resetState,
     loadSettings,
+    createEmptyPageData,
+    clearPageCache,
+    getCachedPage,
+    setCachedPage,
   }
 })
