@@ -89,6 +89,16 @@
       @select-all="handleSelectAll"
     />
 
+    <!-- 分页条 -->
+    <PaginationBar
+      v-if="!error && currentPageData.totalPage > 0"
+      :current-page="currentPageData.currentPage"
+      :total-pages="currentPageData.totalPage"
+      :total-count="totalCount"
+      :loading="loading"
+      @go-to-page="handleGoToPage"
+    />
+
     <!-- Collection Dropdown -->
     <CollectionDropdown
       v-if="dropdownWallpaper"
@@ -102,13 +112,14 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, onUnmounted, onActivated, onDeactivated, ref, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import SearchBar from '@/components/SearchBar.vue'
 import WallpaperList from '@/components/WallpaperList.vue'
 import ImagePreview from '@/components/ImagePreview.vue'
 import Alert from '@/components/Alert.vue'
 import LoadingOverlay from '@/components/LoadingOverlay.vue'
 import CollectionDropdown from '@/components/favorites/CollectionDropdown.vue'
+import PaginationBar from '@/components/PaginationBar.vue'
 import {
   useWallpaperList,
   useDownload,
@@ -119,17 +130,20 @@ import {
   useCollections,
 } from '@/composables'
 import type { WallpaperItem, GetParams, CustomParams } from '@/types'
-import { throttle } from '@/utils/helpers'
 
 // Composables
 const {
   wallpapers,
+  currentPageData,
+  totalCount,
   loading,
   error,
   queryParams,
   fetch: fetchWallpapers,
-  loadMore: loadMoreWallpapers,
+  goToPage,
   saveCustomParams,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used in Plan 49-02
+  updateItemFavoriteStatus,
 } = useWallpaperList()
 const { addTask, startDownload, isDownloading } = useDownload()
 const { settings } = useSettings()
@@ -207,23 +221,52 @@ const defaultCollectionId = computed(() => getDefault()?.id ?? null)
 onMounted(() => {
   // 添加点击外部关闭下拉菜单
   document.addEventListener('click', handleClickOutside)
-})
-
-onActivated(() => {
-  // 组件被激活时（从 KeepAlive 缓存中恢复），添加滚动监听器
-  window.addEventListener('scroll', throttledScrollEvent, { passive: true })
-})
-
-onDeactivated(() => {
-  // 组件被停用时（进入 KeepAlive 缓存），移除滚动监听器
-  window.removeEventListener('scroll', throttledScrollEvent)
+  // 添加键盘导航
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
-  // 组件真正卸载时，确保清理监听器
-  window.removeEventListener('scroll', throttledScrollEvent)
+  // 组件卸载时，清理监听器
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('keydown', handleKeydown)
 })
+
+// 监听页码变化，触发滚动
+watch(
+  () => currentPageData.value.currentPage,
+  (newPage, oldPage) => {
+    // 仅在页码实际变化时滚动（排除初始化）
+    if (oldPage !== undefined && oldPage !== 0 && newPage !== oldPage) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+)
+
+/**
+ * 分页导航处理
+ */
+const handleGoToPage = async (page: number): Promise<void> => {
+  await goToPage(page)
+}
+
+/**
+ * 键盘导航处理（与 ImagePreview 互斥）
+ */
+const handleKeydown = (event: KeyboardEvent): void => {
+  // 只在 ImagePreview 关闭时响应
+  if (imgShow.value) return
+
+  const { currentPage, totalPage } = currentPageData.value
+
+  // 边界检查 + 导航
+  if (event.key === 'ArrowLeft' && currentPage > 1) {
+    event.preventDefault()
+    goToPage(currentPage - 1)
+  } else if (event.key === 'ArrowRight' && currentPage < totalPage) {
+    event.preventDefault()
+    goToPage(currentPage + 1)
+  }
+}
 
 // Methods
 const handleChangeParams = (customParams: GetParams | null): void => {
@@ -393,30 +436,6 @@ const retryFetch = (): void => {
     showLoadingOverlay.value = false
   })
 }
-
-/**
- * 滚轮滚动加载（使用节流优化）
- */
-const scrollEvent = (): void => {
-  // 如果正在加载，则不执行
-  if (loading.value) return
-
-  // 如果已经加载完所有页面且有数据，则不执行
-  const { currentPage, totalPage } = wallpapers.value
-  if (totalPage > 0 && currentPage >= totalPage) return
-
-  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop
-  const scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight
-  const clientHeight = document.documentElement.clientHeight
-
-  // 距离底部200px时触发加载（增加阈值以应对快速滚动）
-  if (scrollTop + clientHeight >= scrollHeight - 200) {
-    loadMoreWallpapers()
-  }
-}
-
-// 使用节流函数包装滚动事件（300ms间隔，平衡性能和响应速度）
-const throttledScrollEvent = throttle(scrollEvent, 300)
 
 /**
  * 添加到下载队列（单个）
