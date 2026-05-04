@@ -607,4 +607,29 @@ export function registerFavoritesHandlers(): void {
       }
     },
   )
+
+  /**
+   * 分页获取收藏（Phase 47 实现）
+   */
+  ipcMain.handle(
+    'favorites-get-paginated',
+    (_event, params: { collectionId?: string; limit: number; offset: number }) => {
+      logHandler('favorites-get-paginated', 'Not implemented - Phase 47', 'warn')
+      return {
+        success: false,
+        error: { code: 'NOT_IMPLEMENTED', message: 'Will be implemented in Phase 47' },
+      }
+    },
+  )
+
+  /**
+   * 获取所有收藏夹计数（Phase 47 实现）
+   */
+  ipcMain.handle('favorites-get-counts', () => {
+    logHandler('favorites-get-counts', 'Not implemented - Phase 47', 'warn')
+    return {
+      success: false,
+      error: { code: 'NOT_IMPLEMENTED', message: 'Will be implemented in Phase 47' },
+    }
+  })
 }
