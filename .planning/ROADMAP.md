@@ -96,7 +96,9 @@
   2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page
   3. Arrow keys navigate between pages; page scrolls to top on navigation
   4. Favorite status (three-state heart) updates immediately after add/remove operations
-**Plans**: TBD
+**Plans**: 2 plans (Wave 1-2)
+  - [ ] 49-01-PLAN.md — PaginationBar 组件与分页导航
+  - [ ] 49-02-PLAN.md — 收藏状态同步
 
 ### Phase 50: Favorites Page - Infinite Scroll
 **Goal**: 实现收藏页面的无限滚动分页和侧边栏实时计数
@@ -118,7 +120,7 @@
 | 46. Infrastructure | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 47. Repository & Service Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Waiting | - |
+| 49. View Layer - Pagination Bar | v6.0 | 2/2 | Ready | - |
 | 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
 
 ---
