@@ -1,23 +1,23 @@
 ---
 gsd_state_version: 1.0
-milestone: v6.0
-milestone_name: 传统分页重构
-status: complete
-last_updated: "2026-05-04T14:30:00.000Z"
-last_activity: 2026-05-04 — v6.0 传统分页重构 milestone complete
+milestone: v7.0
+milestone_name: 代码结构优化
+status: planning
+last_updated: "2026-05-04T15:00:00.000Z"
+last_activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 > Updated: 2026-05-04
-> Current: Milestone v6.0 — 传统分页重构
-> Status: ✅ Complete
+> Current: Milestone v7.0 — 代码结构优化
+> Status: Planning
 
 ---
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 ## Current Position
 
-Phase: Phase 50 (Favorites Page Pagination) — ✅ Complete
-Plan: 50-PLAN.md (6 tasks, Wave 1)
-Status: v6.0 Milestone Complete
-Last activity: 2026-05-04 — v6.0 传统分页重构 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
 
 ---
 
@@ -42,45 +42,17 @@ Last activity: 2026-05-04 — v6.0 传统分页重构 milestone complete
 
 | Metric | Value |
 |--------|-------|
-| Total phases (v6.0) | 5 |
-| Completed phases | 5 |
-| Total plans | 6 |
-| Completed plans | 6 |
-| Overall progress | 100% |
-
----
-
-## Milestone Summary: v6.0 传统分页重构
-
-**Goal:** 将在线壁纸页面从无限滚动改为传统分页条，为我的收藏页面实现传统分页，通过数据库层计算收藏状态
-
-**Final Implementation:**
-- 在线壁纸页面和收藏页面都使用传统分页（Phase 48 决策 D-01）
-- 收藏状态由 Service 层注入（is_favorite 字段）
-
-### Phase Overview
-
-| Phase | Focus | Requirements | Status |
-|-------|-------|--------------|--------|
-| 46 | Infrastructure | 5 | ✅ Complete |
-| 47 | Repository & Service | 3 | ✅ Complete |
-| 48 | Composable & Store | 10 | ✅ Complete |
-| 49 | View Layer - Pagination | 8 | ✅ Complete |
-| 50 | Favorites Page | 4 | ✅ Complete |
-
-### Key Changes
-
-| 页面 | 原实现 | 新实现 |
-|------|----------|----------|
-| 在线壁纸 | 无限滚动 | 传统分页条 |
-| 我的收藏 | 全量加载 | 传统分页条 |
-| 收藏状态 | 前端 Set 计算 | Service 层注入 |
+| Total phases (v7.0) | 0 |
+| Completed phases | 0 |
+| Total plans | 0 |
+| Completed plans | 0 |
+| Overall progress | 0% |
 
 ---
 
 ## Accumulated Context
 
-### v6.0 Key Decisions
+### v6.0 Key Decisions (carried forward)
 
 | 决策 | 理由 | 结果 |
 |------|------|------|
@@ -91,19 +63,6 @@ Last activity: 2026-05-04 — v6.0 传统分页重构 milestone complete
 | FIFO 缓存淘汰 (5页上限) | 平衡内存与用户体验 | ✅ Phase 48 实现 |
 | 两页面都使用传统分页 | 一致的用户体验 | ✅ Phase 50 实现 |
 
-### Phase 48-50 产出
-
-| 产出 | 位置 | 用途 |
-|------|------|------|
-| WallpaperStore.currentPageData | wallpaper store | 当前页数据 |
-| WallpaperStore.pageCache | wallpaper store | 页面缓存 (FIFO 5页) |
-| WallpaperStore.totalCount | wallpaper store | 总条目数 |
-| FavoritesStore.counts | favorites store | 响应式计数 |
-| useWallpaperList.goToPage() | useWallpaperList | 分页导航 |
-| useFavorites.goToPage() | useFavorites | 收藏分页导航 |
-| PaginationBar.vue | components | 分页条组件 |
-| ArrowLeft/ArrowRight 导航 | OnlineWallpaper, FavoritesPage | 键盘分页导航 |
-
 ---
 
-*Updated: 2026-05-04 — v6.0 传统分页重构 milestone complete*
+*Updated: 2026-05-04 — Milestone v7.0 代码结构优化 started*

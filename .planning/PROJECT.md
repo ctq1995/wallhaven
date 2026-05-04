@@ -8,27 +8,30 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 **收藏管理，分类随心** — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
-## Current Milestone: v6.0 传统分页重构
+## Current Milestone: v7.0 代码结构优化
 
-**Goal:** 将在线壁纸页面从无限滚动改为传统分页条，为我的收藏页面实现无限滚动分页，通过数据库层计算收藏状态
+**Goal:** 系统性审查代码库，删除死代码、消除重复、简化类型和导入，在保持所有功能不变的前提下精简代码体积
 
 **Target features:**
 
-### 在线壁纸页面
-- 传统分页条 UI（页码导航，24张/页）
-- 显示总条目数（"共 X 张"）
-- 用 PageData 替换 TotalPageData 数据结构
-- 内存缓存已加载页面数据
-- 收藏状态由数据库查询返回（is_favorite 字段）
-- 不同步 URL 参数
+### 代码清理范围
+- 死代码删除：未被引用的文件、导出、类型定义
+- 重复代码消除：合并功能相似的函数/类
+- 类型/导入简化：删除未使用的导入语句和类型定义
+- 文件体积精简：关注超过 300 行的文件
 
-### 我的收藏页面
-- 无限滚动分页 UI
-- SQLite LIMIT/OFFSET 分页查询
-- 侧边栏收藏数目响应式更新
-- 仅本地数据库数据源
+### 关注领域
+- Composable/Service/Repository 层
+- 类型定义和导入
+- Vue 组件
+- 主进程/IPC
+
+### 约束
+- 保持现有功能不变
+- 预期规模：中等优化（3-5 天）
 
 **Shipped Milestones:**
+- v6.0 传统分页重构 (2026-05-04) — 24 requirements, 5 phases
 - v5.0 electron-store 到 SQLite 迁移 (2026-05-03) — 29 requirements, 5 phases
 - v2.0 架构重构 (2026-04-26) — 38 requirements, 5 phases
 - v2.1 下载断点续传 (2026-04-27) — 9 requirements, 4 phases
@@ -92,9 +95,9 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 ### Active
 
-<!-- v6.0 milestone requirements — defined via /gsd-new-milestone -->
+<!-- v7.0 milestone requirements — defined via /gsd-new-milestone -->
 
-Requirements for v6.0 传统分页重构 to be defined.
+Requirements for v7.0 代码结构优化 to be defined.
 
 ### Future
 
@@ -269,4 +272,4 @@ This document evolves at phase transitions and milestone boundaries.
 ---
 
 *创建时间：2025-04-25*
-*最后更新：2026-05-04 — v6.0 milestone started*
+*最后更新：2026-05-04 — v7.0 milestone started*
