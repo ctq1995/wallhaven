@@ -1,77 +1,12 @@
-// Wallhaven API 相关类型定义
-
-// ==================== 壁纸相关类型 ====================
-
 /**
- * 壁纸缩略图信息
- */
-export interface WallpaperThumb {
-  large: string
-  original: string
-  small: string
-}
-
-/**
- * 壁纸查询参数
- */
-export interface WallpaperQuery {
-  id?: number
-  tag?: string
-}
-
-/**
- * 壁纸元数据
- */
-export interface WallpaperMeta {
-  current_page: number
-  last_page: number
-  per_page: number
-  total: number
-  query?: string | WallpaperQuery
-  seed?: string | null
-}
-
-/**
- * 壁纸项目信息，可为 null 或者 WallpaperItem
+ * 类型定义主入口
+ * Phase 46: 重构为重导出入口
+ *
+ * 领域类型已迁移至 src/types/domain/ 目录
  */
 
-export interface WallpaperItem {
-  id: string
-  url: string
-  short_url: string
-  views: number
-  favorites: number
-  source: string
-  purity: 'sfw' | 'sketchy' | 'nsfw'
-  category: 'general' | 'anime' | 'people'
-  dimension_x: number
-  dimension_y: number
-  resolution: string
-  ratio: string
-  file_size: number
-  file_type: string
-  created_at: string
-  colors: string[]
-  path: string
-  thumbs: WallpaperThumb
-}
-
-// ==================== 页面数据相关类型 ====================
-
-/**
- * 页面数据结构
- */
-export interface PageData {
-  totalPage: number
-  currentPage: number
-  data: WallpaperItem[]
-}
-
-export interface TotalPageData {
-  totalPage: number
-  currentPage: number
-  sections: PageData[]
-}
+// 从 domain 目录重导出
+export * from './domain'
 
 // ==================== 搜索参数相关类型 ====================
 
@@ -159,7 +94,7 @@ export interface WallpaperListProps {
   error: boolean
 }
 
-// ==================== 下载和壁纸信息类型 ====================
+// ==================== 壁纸操作信息类型 ====================
 
 /**
  * 壁纸操作信息（用于设置背景、下载等）
@@ -171,77 +106,3 @@ export interface WallpaperActionInfo {
   small: string
   resolution: string
 }
-
-// ==================== 下载任务相关类型 ====================
-
-/**
- * 下载任务状态
- */
-export type DownloadState =
-  | 'downloading'
-  | 'paused'
-  | 'waiting'
-  | 'completed'
-  | 'failed'
-  | 'retrying'
-
-/**
- * 下载任务项
- */
-export interface DownloadItem {
-  id: string // 唯一标识符
-  url: string
-  filename: string // 文件名
-  small: string
-  resolution: string
-  size: number
-  offset: number
-  progress: number
-  speed: number
-  state: DownloadState
-  path?: string
-  time?: string
-  wallpaperId?: string // 关联的壁纸ID
-  /** Current retry attempt (1-based, 1-3). Set when state='retrying' */
-  retryCount?: number
-  /** Backoff delay for current retry attempt in ms. From main process progress event */
-  retryDelay?: number
-  /** Date.now() timestamp when retrying state was entered. Used for countdown */
-  retryStartedAt?: number
-  /** Last error message from main process. Used for exhausted-retry display */
-  error?: string
-}
-
-/**
- * 已完成下载项
- */
-export interface FinishedDownloadItem extends DownloadItem {
-  path: string
-  time: string
-}
-
-// ==================== 应用设置类型 ====================
-
-/**
- * 壁纸适配模式
- */
-export type WallpaperFit = 'fill' | 'fit' | 'stretch' | 'tile' | 'center' | 'span'
-
-/**
- * 应用设置接口
- */
-export interface AppSettings {
-  // 下载设置
-  downloadPath: string
-  maxConcurrentDownloads: number
-
-  // API 设置
-  apiKey: string
-
-  // 桌面设置
-  wallpaperFit: WallpaperFit
-}
-
-// ==================== 收藏功能类型 ====================
-
-export * from './favorite'
