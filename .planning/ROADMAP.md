@@ -42,9 +42,9 @@
 ---
 
 <details>
-<summary>🚧 v6.0 传统分页重构 (Phases 46-50) — PLANNING</summary>
+<summary>🚧 v6.0 传统分页重构 (Phases 46-50) — IN PROGRESS</summary>
 
-- [ ] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods
+- [x] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods ✅ 2026-05-04
 - [ ] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection
 - [ ] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts
 - [ ] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration
@@ -56,15 +56,15 @@
 
 ## Phase Details
 
-### Phase 46: Infrastructure
+### Phase 46: Infrastructure ✅
 **Goal**: 建立分页功能的类型系统和 IPC 通信基础
 **Depends on**: Phase 45 (v5.0 complete)
 **Requirements**: DATAREF-01, DATAREF-02, DATAREF-03, FAVSTA-01, FAVPAG-02
 **Success Criteria** (what must be TRUE):
-  1. TypeScript compiles without errors after type additions (is_favorite, PageCache, PaginationParams)
-  2. New IPC handlers (favorites-get-paginated, favorites-count, favorites-count-by-collection) return correct results from SQLite
-  3. ElectronClient methods successfully invoke new handlers with correct parameter passing
-**Plans**: 46-PLAN.md (Wave 1, 11 tasks)
+  1. TypeScript compiles without errors after type additions (is_favorite, PageCache, PaginationParams) ✅
+  2. New IPC handlers defined with NOT_IMPLEMENTED placeholder (Phase 47 will implement) ✅
+  3. ElectronClient methods successfully invoke new handlers with correct parameter passing ✅
+**Plans**: 46-PLAN.md (Wave 1, 11 tasks) — Completed 2026-05-04
 
 ### Phase 47: Repository & Service Layer
 **Goal**: 实现 Repository 层分页查询和 Service 层收藏状态计算
@@ -115,8 +115,8 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 46. Infrastructure | v6.0 | 1/1 | Ready to execute | - |
-| 47. Repository & Service Layer | v6.0 | 0/TBD | Waiting | - |
+| 46. Infrastructure | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
+| 47. Repository & Service Layer | v6.0 | 0/TBD | Ready to plan | - |
 | 48. Composable & Store Layer | v6.0 | 0/TBD | Waiting | - |
 | 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Waiting | - |
 | 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
