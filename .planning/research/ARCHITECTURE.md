@@ -1,607 +1,505 @@
-# Architecture Research: 传统分页重构
+# Architecture Research: 代码结构优化
 
-**Domain:** Wallhaven 壁纸浏览器 — 在线壁纸页面传统分页 + 我的收藏页面无限滚动分页
+**Domain:** Wallhaven 壁纸浏览器 — v7.0 代码结构优化
 **Researched:** 2026-05-04
-**Confidence:** HIGH
+**Confidence:** HIGH (基于现有分层架构分析 + 代码依赖审查)
+
+---
 
 ## Executive Summary
 
-本文档分析传统分页功能如何与现有分层架构集成。v6.0 里程碑的核心变更是：
-1. **在线壁纸页面**：从无限滚动改为传统分页条，内存缓存已加载页面
-2. **我的收藏页面**：实现无限滚动分页，使用 SQLite LIMIT/OFFSET 查询
-3. **收藏状态计算**：从渲染层移至 Service 层，API 返回时附加 `is_favorite` 字段
+本文档分析如何在分层架构 (Client → Repository → Service → Composable → View) 中安全地执行代码优化，包括死代码删除、重复代码消除、类型/导入简化。核心原则是**自底向上优化，保持 API 兼容性**。
 
-**架构原则：** 保持现有 5 层架构不变，仅在各层添加分页相关逻辑。数据流仍遵循 View → Composable → Service → Repository → Client 的单向流动。
+**关键发现：**
+1. 分层架构提供了清晰的依赖边界，优化应从底层开始
+2. 大部分死代码可通过静态分析识别，但跨层引用需要运行时验证
+3. 类型定义存在冗余（如 `env.d.ts` 与 `src/shared/types/ipc.ts`）
+4. 某些"死代码"实际上是 IPC 通道暴露，需谨慎处理
 
 ---
 
-## 现有架构概览
+## 分层架构优化策略
+
+### Client Layer
+
+**职责：** 封装 Electron IPC 调用和 HTTP 请求
+
+**文件：**
+- `src/clients/api.client.ts` — HTTP 客户端
+- `src/clients/electron.client.ts` — Electron IPC 客户端
+- `src/clients/constants.ts` — 存储键常量
+
+**优化策略：**
+
+1. **死代码检测方法：**
+   - 搜索 `electronClient` 的所有方法调用
+   - 检查 `STORAGE_KEYS` 是否全部被使用
+   - 验证 `apiClient` 的 `get`/`post` 方法是否都被使用
+
+2. **安全优化要点：**
+   - Client 方法即使未被直接调用，也可能被 IPC 通道需要
+   - 不要删除任何暴露给 preload 的 IPC 方法
+   - 保持 `IpcResponse<T>` 返回类型一致性
+
+3. **可优化项：**
+   - `apiClient.ts` 与 `wallpaperApi.ts` 存在功能重复（两个 axios 实例）
+   - 可合并为统一 HTTP 客户端
+
+4. **不可删除项：**
+   - 所有 `electronClient` 方法 — 被 Repository 层依赖
+   - `STORAGE_KEYS` 常量 — 定义存储键
+
+```typescript
+// 检测命令：查找 Client 方法的所有调用
+grep -r "electronClient\." src/
+grep -r "apiClient\." src/
+```
+
+---
+
+### Repository Layer
+
+**职责：** 数据访问抽象，封装存储操作
+
+**文件：**
+- `src/repositories/settings.repository.ts`
+- `src/repositories/wallpaper.repository.ts`
+- `src/repositories/window.repository.ts`
+- `src/repositories/download.repository.ts`（推测存在）
+- `src/repositories/favorites.repository.ts`（推测存在）
+
+**优化策略：**
+
+1. **死代码检测方法：**
+   - 每个 Repository 方法应在 Service 层有对应调用
+   - 检查 `index.ts` 导出的类型是否全部被使用
+
+2. **依赖关系：**
+   ```
+   Repository → Client (electronClient, apiClient)
+   Service → Repository
+   ```
+
+3. **安全优化要点：**
+   - Repository 方法签名变更会影响所有 Service
+   - 不要修改返回类型，保持 `IpcResponse<T>` 包装
+   - 内部实现可简化，但对外 API 保持稳定
+
+4. **可优化项：**
+   - `CacheInfo`、`ClearCacheResult` 类型可移至 `types/` 目录统一管理
+   - 检查是否有未使用的 Repository 方法
+
+```typescript
+// 检测命令：验证 Repository 方法是否被 Service 调用
+grep -r "settingsRepository\." src/services/
+grep -r "wallpaperRepository\." src/services/
+grep -r "favoritesRepository\." src/services/
+```
+
+---
+
+### Service Layer
+
+**职责：** 业务逻辑处理，协调多个 Repository
+
+**文件：**
+- `src/services/wallpaperApi.ts` — Wallhaven API 调用
+- `src/services/download.service.ts` — 下载管理
+- `src/services/settings.service.ts` — 设置管理
+- `src/services/window.service.ts` — 窗口控制
+- `src/services/collections.service.ts` — 收藏夹管理
+- `src/services/favorites.service.ts` — 收藏项管理
+
+**优化策略：**
+
+1. **死代码检测方法：**
+   - 每个 Service 方法应在 Composable 层有对应调用
+   - 检查私有方法是否被公共方法使用
+   - 验证导出的类型是否被使用
+
+2. **依赖关系：**
+   ```
+   Service → Repository (多个)
+   Service → Client (少量直接调用)
+   Composable → Service
+   ```
+
+3. **安全优化要点：**
+   - Service 是业务逻辑核心，修改影响面最广
+   - 保持公共方法签名不变
+   - 私有方法可自由重构/删除
+
+4. **可优化项：**
+   - `wallpaperApi.ts` 有大量 `any` 类型（见 CONCERNS.md）
+   - `clearApiCache()` 函数可能未被使用
+   - `cancelCurrentRequest()` 函数需验证是否被使用
+   - 内存缓存逻辑可在多个 Service 间复用
+
+5. **重复代码模式：**
+   - `settings.service.ts` 和 `collections.service.ts` 都有 `cachedSettings`/`cachedCollections` 内存缓存
+   - 可提取为通用缓存装饰器或基类
+
+```typescript
+// 检测命令：验证 Service 方法是否被 Composable 调用
+grep -r "settingsService\." src/composables/
+grep -r "downloadService\." src/composables/
+grep -r "wallpaperService\." src/composables/
+grep -r "collectionsService\." src/composables/
+grep -r "favoritesService\." src/composables/
+```
+
+---
+
+### Composable Layer
+
+**职责：** Vue 组合式函数，封装组件逻辑
+
+**文件：**
+- `src/composables/core/useAlert.ts`
+- `src/composables/wallpaper/useWallpaperList.ts`
+- `src/composables/wallpaper/useWallpaperSetter.ts`
+- `src/composables/download/useDownload.ts`
+- `src/composables/settings/useSettings.ts`
+- `src/composables/local/useLocalFiles.ts`
+- `src/composables/favorites/useCollections.ts`
+- `src/composables/favorites/useFavorites.ts`
+- `src/composables/animation/useImageTransition.ts`
+
+**优化策略：**
+
+1. **死代码检测方法：**
+   - 每个 Composable 应在 View 层有对应调用
+   - 检查返回值是否全部被使用
+   - 验证导出类型是否被使用
+
+2. **依赖关系：**
+   ```
+   Composable → Service (多个)
+   Composable → Store (Pinia)
+   View → Composable
+   ```
+
+3. **安全优化要点：**
+   - Composable 返回值变更直接影响 View 层
+   - 保持返回对象结构不变
+   - 内部实现可自由重构
+
+4. **可优化项：**
+   - `UseAlertReturn` 接口定义了 7 个方法，但某些 View 可能只用 `showError`
+   - `useSettings` 的 `editableSettings` 功能可能与某些页面无关
+   - 检查 `useImageTransition` 是否被所有预览场景使用
+
+5. **返回值简化：**
+   ```typescript
+   // 当前：返回完整对象
+   return {
+     alert, showAlert, hideAlert, showSuccess, showError, showWarning, showInfo
+   }
+
+   // 如果 hideAlert 从未被使用，可考虑移除
+   // 但需全面检查所有使用点
+   ```
+
+```typescript
+// 检测命令：验证 Composable 是否被 View 使用
+grep -r "useAlert" src/views/
+grep -r "useWallpaperList" src/views/
+grep -r "useDownload" src/views/
+grep -r "useSettings" src/views/
+grep -r "useFavorites" src/views/
+grep -r "useCollections" src/views/
+```
+
+---
+
+### View Layer
+
+**职责：** UI 渲染和用户交互
+
+**文件：**
+- `src/views/OnlineWallpaper.vue`
+- `src/views/LocalWallpaper.vue`
+- `src/views/SettingPage.vue`
+- `src/views/DownloadWallpaper.vue`
+- `src/views/FavoritesPage.vue`
+- `src/components/` — 共享组件
+
+**优化策略：**
+
+1. **死代码检测方法：**
+   - 检查未使用的 import 语句
+   - 检查定义但未使用的 ref/reactive
+   - 检查未使用的 CSS 类
+
+2. **依赖关系：**
+   ```
+   View → Composable
+   View → Component (子组件)
+   View → assets (静态资源)
+   ```
+
+3. **安全优化要点：**
+   - View 层优化风险最低
+   - 可安全移除未使用的导入和变量
+   - CSS 清理需确保动态类名不受影响
+
+4. **可优化项：**
+   - 检查 `OnlineWallpaper.vue` 中 `wallpaperList` 计算属性是否必要
+   - 检查 `DownloadWallpaper.vue` 中 `showInFolder` 是否可通过 Service 层实现
+   - 移除未使用的组件导入
+
+5. **已知问题（来自 CONCERNS.md）：**
+   - `src/components/ElectronTest.vue` — 测试组件，未在生产使用
+   - `src/components/AlertDemo.vue` — Demo 组件，未在生产使用
+   - `src/views/APITest.vue` — 测试视图，未集成到路由
+   - `src/views/Diagnostic.vue` — 诊断视图，未集成到路由
+
+---
+
+## 依赖分析
+
+### 跨层依赖矩阵
+
+| 层级 | 依赖方向 | 依赖项 |
+|------|----------|--------|
+| Client | 无依赖 | — |
+| Repository | → Client | electronClient, apiClient, STORAGE_KEYS |
+| Service | → Repository | settingsRepository, wallpaperRepository, etc. |
+| Service | → Client | electronClient (直接调用，如 downloadService) |
+| Composable | → Service | 所有 Service |
+| Composable | → Store | Pinia stores |
+| View | → Composable | 所有 Composables |
+| View | → Component | 子组件 |
+
+### 优化安全边界
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     View Layer                                   │
-│  (OnlineWallpaper, FavoritesPage)                               │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Composable Layer                                │
-│  (useWallpaperList, useFavorites, useCollections)               │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Service Layer                                  │
-│  (WallpaperService, FavoritesService, CollectionsService)       │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                 Repository Layer                                 │
-│  (WallpaperRepository, FavoritesRepository)                     │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Client Layer                                  │
-│  (ElectronClient, ApiClient)                                    │
+│                      SAFE TO REMOVE                             │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ View Layer: 未使用的 import, ref, CSS                      │  │
+│  │ Composable Layer: 未使用的返回值, 私有方法                   │  │
+│  │ Service Layer: 未使用的私有方法, 可合并的缓存逻辑             │  │
+│  │ Repository Layer: 未使用的方法 (需验证)                      │  │
+│  │ Client Layer: 未使用的方法 (需验证 IPC 暴露)                 │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│                      NEEDS VERIFICATION                         │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ 类型定义: 可能被多个文件引用                                 │  │
+│  │ IPC 通道: 可能被 preload 暴露                               │  │
+│  │ Store 方法: 可能被多个 Composable 调用                       │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│                      DO NOT REMOVE                              │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ 公共 API 签名: Service/Composable/Repository 公共方法       │  │
+│  │ IPC Handler: 所有注册的 IPC 处理器                          │  │
+│  │ 类型导出: index.ts 中导出的类型                             │  │
+│  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 当前分页实现分析
+## 优化顺序
 
-### 在线壁纸页面（当前：无限滚动）
+### 推荐顺序：自底向上
 
-**数据结构：**
-```typescript
-// types/index.ts
-interface PageData {
-  totalPage: number
-  currentPage: number
-  data: WallpaperItem[]
-}
+**理由：** 底层变更影响面小，易于验证；上层变更影响面大，需谨慎。
 
-interface TotalPageData {
-  totalPage: number
-  currentPage: number
-  sections: PageData[]  // 每个 section 代表一个已加载的页面
-}
+```
+Phase 1: View Layer（风险最低）
+  ├─ 移除未使用的 import
+  ├─ 移除未使用的 ref/reactive
+  ├─ 移除未使用的 CSS
+  └─ 删除测试/演示组件
+
+Phase 2: Composable Layer
+  ├─ 检查返回值使用情况
+  ├─ 简化内部实现
+  └─ 提取共享逻辑
+
+Phase 3: Service Layer
+  ├─ 检查方法调用情况
+  ├─ 移除未使用的私有方法
+  ├─ 合并重复的缓存逻辑
+  └─ 简化类型定义
+
+Phase 4: Repository Layer
+  ├─ 检查方法调用情况
+  └─ 简化内部实现
+
+Phase 5: Client Layer（风险最高）
+  ├─ 检查方法调用情况
+  └─ 合并重复的 HTTP 客户端
+
+Phase 6: Types & Constants
+  ├─ 合并重复的类型定义
+  ├─ 移除未使用的类型
+  └─ 统一类型文件位置
 ```
 
-**当前流程：**
-1. `useWallpaperList.fetch()` — 获取首页，存入 `store.totalPageData.sections[0]`
-2. `useWallpaperList.loadMore()` — 获取下一页，append 到 `sections`
-3. `WallpaperList.vue` — 渲染所有 sections（无限滚动）
-4. `OnlineWallpaper.vue` — 监听滚动事件，触发 `loadMore()`
+### 验证检查点
 
-**收藏状态计算：**
-- 当前在 **渲染层** 计算：`OnlineWallpaper.vue` 构建 `wallpaperCollectionMap`
-- 传入 `WallpaperList.vue` 作为 prop
-- `WallpaperList.vue` 调用 `getHeartState()` 计算三态颜色
+每个 Phase 完成后执行：
 
-### 我的收藏页面（当前：无分页）
-
-**数据结构：**
-```typescript
-// FavoritesPage.vue
-const filteredFavorites = computed(() => {
-  if (!selectedCollectionId.value) {
-    // 全部收藏 — 去重
-    const seen = new Set<string>()
-    return favorites.value
-      .slice()
-      .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
-      .filter((f) => {
-        if (seen.has(f.wallpaperId)) return false
-        seen.add(f.wallpaperId)
-        return true
-      })
-  }
-  return favorites.value
-    .filter((f) => f.collectionId === selectedCollectionId.value)
-    .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
-})
-```
-
-**当前问题：**
-- 一次性加载所有收藏项到内存
-- 大量收藏时性能下降
-- 侧边栏计数需要额外查询
+1. **TypeScript 编译：** `npm run type-check`
+2. **单元测试：** `npm run test`
+3. **应用启动：** 手动验证核心功能
+4. **功能回归：** 验证所有页面正常工作
 
 ---
 
-## 目标架构设计
+## 类型定义优化
 
-### 1. 在线壁纸页面 — 传统分页条
+### 当前问题
 
-#### 数据结构变更
+1. **类型重复：**
+   - `env.d.ts` 与 `src/shared/types/ipc.ts` 存在类型重复
+   - 见 CONCERNS.md: "Type duplication between `env.d.ts` and `src/shared/types/ipc.ts`"
 
-```typescript
-// types/index.ts — PageData 新增 total 字段
-interface PageData {
-  totalPage: number
-  currentPage: number
-  data: WallpaperItem[]
-  total?: number  // 新增：总条目数（用于显示"共 X 张"）
-}
+2. **类型位置分散：**
+   - `src/types/index.ts` — 主类型定义
+   - `src/types/api/index.ts` — API 类型（当前为空）
+   - `src/shared/types/ipc.ts` — IPC 类型
+   - 各文件内联定义的类型
 
-// WallpaperStore 结构变更
-interface OnlineWallpaperState {
-  // 替换 TotalPageData
-  currentPageData: shallowRef<PageData | null>  // 当前页数据
-  pageCache: Map<number, PageData>              // 页面缓存（composable 管理）
+3. **`any` 类型滥用：**
+   - 见 CONCERNS.md 详细列表
 
-  // 分页状态
-  currentPage: number
-  totalPage: number
-  total: number  // 总条目数
+### 优化策略
 
-  // 其他保持不变
-  loading: Ref<boolean>
-  error: Ref<boolean>
-  queryParams: Ref<GetParams | null>
-  savedParams: Ref<CustomParams | null>
-  settings: Reactive<AppSettings>
-}
-```
+1. **统一类型位置：**
+   ```
+   src/types/
+   ├─ index.ts       — 主类型导出
+   ├─ api.ts         — API 相关类型
+   ├─ ipc.ts         — IPC 相关类型（从 shared/ 迁移）
+   ├─ store.ts       — Store 相关类型
+   └─ common.ts      — 通用类型
+   ```
 
-#### 各层职责
+2. **类型迁移原则：**
+   - 保持导出路径兼容，使用 re-export
+   - 逐步迁移，每次迁移一个类型
+   - 迁移后更新 import 路径
 
-| 层级 | 职责 | 修改内容 |
-|------|------|----------|
-| **View** | 显示分页条 UI，响应页码点击 | `OnlineWallpaper.vue` 添加 `PaginationBar` 组件，移除滚动监听 |
-| **Composable** | 管理分页状态，缓存逻辑 | `useWallpaperList` 新增 `goToPage()`, `pageCache` |
-| **Service** | 调用 API，添加 is_favorite 字段 | `WallpaperService.search()` 返回带 `is_favorite` 的数据 |
-| **Repository** | 无变更 | - |
-| **Client** | 无变更 | - |
-
-#### 页面缓存策略
-
-```typescript
-// useWallpaperList.ts
-const pageCache = ref(new Map<number, PageData>())
-
-const fetch = async (params: GetParams | null): Promise<boolean> => {
-  // ... 现有逻辑
-
-  // 清空缓存，缓存首页
-  pageCache.value.clear()
-  pageCache.value.set(1, pageData)
-  store.currentPageData = pageData
-  store.currentPage = 1
-  store.totalPage = pageData.totalPage
-  store.total = pageData.total || 0
-}
-
-const goToPage = async (page: number): Promise<boolean> => {
-  // 1. 边界检查
-  if (page < 1 || page > store.totalPage) return false
-
-  // 2. 检查缓存
-  if (pageCache.value.has(page)) {
-    store.currentPageData = pageCache.value.get(page)!
-    store.currentPage = page
-    return true
-  }
-
-  // 3. 请求新页面
-  store.loading = true
-  const params = { ...store.queryParams, page }
-  const result = await wallpaperService.search(params)
-
-  if (result.success) {
-    const pageData = toPageData(result.data!)
-    pageCache.value.set(page, pageData)
-    store.currentPageData = pageData
-    store.currentPage = page
-  }
-
-  store.loading = false
-  return result.success
-}
-```
-
-#### 缓存失效条件
-
-| 条件 | 行为 |
-|------|------|
-| 新搜索 | 清空整个缓存，重新获取首页 |
-| 参数变更 | 清空缓存，重新获取首页 |
-| 收藏/取消收藏 | **不重新请求** — 更新本地缓存中的 `is_favorite` 字段 |
+3. **消除 `any` 策略：**
+   - 优先使用 `unknown` 替代
+   - 定义具体的接口
+   - 使用泛型约束
 
 ---
 
-### 2. 我的收藏页面 — 无限滚动分页
+## 死代码检测技术
 
-#### SQLite 分页查询
+### 静态分析方法
 
-```sql
--- favorites.handler.ts 新增
-SELECT
-  f.collection_id,
-  f.wallpaper_id,
-  f.wallpaper_data,
-  f.added_at
-FROM favorites f
-WHERE :collectionId IS NULL OR f.collection_id = :collectionId
-ORDER BY f.added_at DESC
-LIMIT :limit OFFSET :offset
-```
+1. **TypeScript 编译器：**
+   ```bash
+   # 启用未使用变量检查
+   tsc --noUnusedLocals --noUnusedParameters
+   ```
 
-#### 各层职责
+2. **ESLint 规则：**
+   ```json
+   {
+     "rules": {
+       "no-unused-vars": "error",
+       "@typescript-eslint/no-unused-vars": "error"
+     }
+   }
+   ```
 
-| 层级 | 职责 | 修改内容 |
-|------|------|----------|
-| **View** | 滚动加载，显示已加载数据 | `FavoritesPage.vue` 添加滚动监听 |
-| **Composable** | 管理分页状态，触发加载 | `useFavorites` 新增 `loadMore()`, `hasMore` |
-| **Service** | 缓存已加载数据 | `FavoritesService` 添加分页逻辑 |
-| **Repository** | 调用分页 IPC | `FavoritesRepository` 新增 `getFavoritesPaginated()` |
-| **Client** | 调用 IPC | `ElectronClient` 新增 `favoritesGetPaginated()` |
-| **Handler** | SQL 分页查询 | `favorites.handler.ts` 新增 handler |
+3. **手动搜索：**
+   ```bash
+   # 搜索函数定义
+   grep -r "function\|const.*=.*(" src/
 
-#### IPC 通道设计
+   # 搜索函数调用
+   grep -r "functionName(" src/
+   ```
+
+### 运行时验证
+
+对于无法静态确定的情况（如动态属性访问）：
 
 ```typescript
-// 新增 IPC 通道
-'favorites-get-paginated': {
-  collectionId?: string
-  limit: number    // 每页条数，默认 24
-  offset: number   // 偏移量
-}
-
-// 返回结构
-interface PaginatedFavoritesResult {
-  items: FavoriteItem[]
-  total: number      // 总条目数
-  hasMore: boolean   // 是否有更多
-}
-```
-
-#### 侧边栏计数响应式更新
-
-当前问题：`CollectionSidebar.vue` 显示的计数需要手动刷新
-
-解决方案：
-```typescript
-// favorites.handler.ts 新增
-'favorites-get-counts': {
-  // 返回 { [collectionId: string]: number } 映射
-}
-
-// useCollections.ts
-const counts = ref<Map<string, number>>(new Map())
-
-const loadCounts = async () => {
-  const result = await favoritesRepository.getCounts()
-  if (result.success) {
-    counts.value = new Map(Object.entries(result.data))
+// 添加开发环境的调用追踪
+if (import.meta.env.DEV) {
+  const original = repository.method
+  repository.method = (...args) => {
+    console.trace('method called')
+    return original.apply(this, args)
   }
 }
-
-// 添加/移除收藏后自动刷新
-const add = async (...) => {
-  await favoritesService.add(...)
-  await loadCounts()  // 刷新计数
-}
 ```
-
----
-
-### 3. is_favorite 字段计算
-
-#### 当前实现（渲染层）
-
-```typescript
-// OnlineWallpaper.vue
-const wallpaperCollectionMap = computed(() => {
-  const map = new Map<string, string[]>()
-  for (const fav of favorites.value) {
-    const ids = map.get(fav.wallpaperId)
-    if (ids) ids.push(fav.collectionId)
-    else map.set(fav.wallpaperId, [fav.collectionId])
-  }
-  return map
-})
-
-// WallpaperList.vue
-const heartState = (id: string): HeartState => {
-  return getHeartState(id, props.defaultCollectionId, props.wallpaperCollectionMap)
-}
-```
-
-#### 目标实现（Service 层）
-
-**方案：Service 层后处理**
-
-```typescript
-// WallpaperService.search()
-async search(params: GetParams | null): Promise<IpcResponse<WallpaperSearchResult>> {
-  // 1. 调用 API
-  const result = await apiClient.get<WallpaperSearchResult>('/search', filteredParams, apiKey)
-
-  if (result.success && result.data) {
-    // 2. 获取所有收藏的 wallpaper ID（使用缓存的 Set）
-    const favoriteIds = await this.getFavoriteIds()
-
-    // 3. 为每个壁纸添加 is_favorite 字段
-    const dataWithFavorite = result.data.data.map(item => ({
-      ...item,
-      is_favorite: favoriteIds.has(item.id)
-    }))
-
-    return {
-      success: true,
-      data: {
-        data: dataWithFavorite,
-        meta: result.data.meta
-      }
-    }
-  }
-
-  return result
-}
-
-// 使用 FavoritesService 的缓存
-private async getFavoriteIds(): Promise<Set<string>> {
-  // 复用 FavoritesService 的内存缓存
-  const result = await favoritesService.getAll()
-  if (result.success && result.data) {
-    return new Set(result.data.map(f => f.wallpaperId))
-  }
-  return new Set()
-}
-```
-
-#### 类型定义更新
-
-```typescript
-// types/index.ts
-interface WallpaperItem {
-  // ... 现有字段
-  is_favorite?: boolean  // 新增：收藏状态
-}
-```
-
----
-
-## 数据流图
-
-### 在线壁纸 — 传统分页
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  User clicks page number                                          │
-│      ↓                                                            │
-│  OnlineWallpaper.vue                                              │
-│  └── useWallpaperList.goToPage(page)                             │
-│      ├── Check pageCache.has(page) → HIT: update store, return   │
-│      └── MISS:                                                    │
-│          └── WallpaperService.search({ ...params, page })        │
-│              └── ApiClient.get('/search', { page })              │
-│                  └── API returns { data, meta }                  │
-│              └── Add is_favorite to each item                    │
-│              └── Return WallpaperSearchResult                    │
-│          └── Store in pageCache.set(page, data)                  │
-│          └── Update store.currentPageData                        │
-│      ↓                                                            │
-│  WallpaperList.vue                                                │
-│  └── Renders currentPageData.data                                │
-│  PaginationBar.vue                                                │
-│  └── Shows page numbers, total count                             │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### 我的收藏 — 无限滚动
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  User scrolls near bottom                                         │
-│      ↓                                                            │
-│  FavoritesPage.vue                                                │
-│  └── scrollListener triggers                                     │
-│      └── useFavorites.loadMore()                                 │
-│          ├── Check hasMore → false: return                       │
-│          └── FavoritesService.getPaginated(offset, limit)        │
-│              └── FavoritesRepository.getFavoritesPaginated()     │
-│                  └── ElectronClient.favoritesGetPaginated()      │
-│                      └── IPC: 'favorites-get-paginated'          │
-│                          └── SQLite: LIMIT/OFFSET query          │
-│                              └── Return { items, total, hasMore }│
-│          └── Append items to store.favorites                     │
-│          └── Update store.hasMore                                │
-│      ↓                                                            │
-│  FavoriteWallpaperCard.vue                                        │
-│  └── Renders new items                                           │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 集成点清单
-
-### 在线壁纸页面
-
-| 组件 | 类型 | 说明 |
-|------|------|------|
-| `OnlineWallpaper.vue` | 修改 | 添加 `PaginationBar`，移除滚动监听 |
-| `useWallpaperList.ts` | 修改 | 添加 `goToPage()`, `pageCache` |
-| `WallpaperService.ts` | 修改 | 添加 is_favorite 后处理 |
-| `WallpaperStore` | 修改 | 替换 `totalPageData` 为 `currentPageData` + `pageCache` |
-| `PaginationBar.vue` | **新增** | 分页条组件 |
-| `types/index.ts` | 修改 | `WallpaperItem` 添加 `is_favorite?` |
-
-### 我的收藏页面
-
-| 组件 | 类型 | 说明 |
-|------|------|------|
-| `FavoritesPage.vue` | 修改 | 添加滚动监听，分页显示 |
-| `useFavorites.ts` | 修改 | 添加 `loadMore()`, `hasMore` |
-| `FavoritesService.ts` | 修改 | 添加分页方法 |
-| `FavoritesRepository.ts` | 修改 | 添加分页 IPC 调用 |
-| `ElectronClient.ts` | 修改 | 添加 `favoritesGetPaginated()` |
-| `favorites.handler.ts` | 修改 | 添加分页 SQL handler |
-| `useCollections.ts` | 修改 | 添加响应式计数 |
-
----
-
-## 构建顺序
-
-考虑依赖关系，建议按以下顺序实施：
-
-### Phase 1: 基础设施
-1. `types/index.ts` — 添加 `is_favorite` 字段
-2. `favorites.handler.ts` — 添加分页和计数 handlers
-3. `ElectronClient.ts` — 添加新 IPC 调用
-
-### Phase 2: Repository & Service
-4. `FavoritesRepository.ts` — 添加分页方法
-5. `FavoritesService.ts` — 添加分页逻辑
-6. `WallpaperService.ts` — 添加 is_favorite 后处理
-
-### Phase 3: Composable & Store
-7. `WallpaperStore` — 替换数据结构
-8. `useWallpaperList.ts` — 添加分页逻辑
-9. `useFavorites.ts` — 添加无限滚动逻辑
-10. `useCollections.ts` — 添加响应式计数
-
-### Phase 4: View 层
-11. `PaginationBar.vue` — 新建分页条组件
-12. `OnlineWallpaper.vue` — 集成分页条
-13. `FavoritesPage.vue` — 添加无限滚动
-14. `CollectionSidebar.vue` — 响应式计数
 
 ---
 
 ## 风险与缓解
 
-### 风险 1：Store 数据结构变更导致响应式断裂
+### 风险 1：删除看似无用但实际被动态调用的代码
+
+**场景：** IPC 通道通过字符串名称调用，静态分析无法发现
 
 **缓解：**
-- 保留 `TotalPageData` 类型兼容性
-- 使用计算属性桥接新旧结构
-- 分阶段迁移，每阶段可独立验证
+- 检查 `electron/preload/index.ts` 中的暴露方法
+- 检查 `electron/main/ipc/handlers/` 中的注册处理器
+- 保留所有 preload 暴露的方法
 
-### 风险 2：is_favorite 状态同步延迟
+### 风险 2：类型变更导致隐式错误
 
-**缓解：**
-- 收藏操作后立即更新本地缓存中的 `is_favorite`
-- 使用 Service 层的 `clearCache()` 确保下次请求获取最新数据
-- `FavoritesService` 的内存缓存确保 `favoriteIds` 实时更新
-
-### 风险 3：大量收藏时首次加载慢
+**场景：** 修改类型定义，TypeScript 编译通过但运行时错误
 
 **缓解：**
-- 使用 LIMIT 24 分页
-- 侧边栏计数使用独立 SQL 查询（不加载全部数据）
-- 首屏加载仅请求第一页
+- 类型变更后运行完整测试
+- 手动验证相关功能
+- 保持向后兼容的类型扩展
 
-### 风险 4：分页条组件 UI 状态管理
+### 风险 3：Store 响应式断裂
+
+**场景：** Store 结构变更导致组件响应式失效
 
 **缓解：**
-- 参考现有组件风格（SearchBar、Alert）
-- 使用 CSS 变量保持一致性
-- 边界状态（首页/末页）禁用按钮
+- 不要修改 Store 的状态结构
+- 仅移除未使用的 Store 方法
+- 验证所有使用 Store 的组件
 
 ---
 
-## 模式与反模式
+## 检查清单
 
-### 模式 1：Service 层数据后处理
+### 每个文件优化前
 
-**何时使用：** API 返回数据需要与本地状态合并时
+- [ ] 确认文件是否被 import
+- [ ] 确认导出的函数/类型是否被使用
+- [ ] 确认是否有动态访问（如 `obj[key]`）
 
-**示例：**
-```typescript
-// WallpaperService.search()
-const dataWithFavorite = result.data.data.map(item => ({
-  ...item,
-  is_favorite: favoriteIds.has(item.id)
-}))
-```
+### 每个函数移除前
 
-**好处：**
-- View 层保持纯粹，不处理数据转换
-- 收藏逻辑集中在一处
-- 便于测试和调试
+- [ ] 全局搜索函数名
+- [ ] 检查是否被 preload 暴露
+- [ ] 检查是否被 Store 调用
+- [ ] 检查是否被其他层直接调用
 
-### 模式 2：Composable 层缓存管理
+### 每个类型移除前
 
-**何时使用：** 需要跨页面保持数据缓存时
-
-**示例：**
-```typescript
-// useWallpaperList.ts
-const pageCache = ref(new Map<number, PageData>())
-
-const goToPage = async (page: number) => {
-  if (pageCache.value.has(page)) {
-    return pageCache.value.get(page)!
-  }
-  // ... 请求并缓存
-}
-```
-
-**好处：**
-- 避免重复请求
-- 用户体验流畅
-- 内存可控（仅缓存已访问页面）
-
-### 反模式 1：在 View 层处理数据转换
-
-**问题：**
-```typescript
-// ❌ 错误：在组件中处理 is_favorite
-const wallpaperWithFavorite = computed(() =>
-  wallpapers.value.map(w => ({
-    ...w,
-    is_favorite: favoriteIds.value.has(w.id)
-  }))
-)
-```
-
-**正确做法：** 在 Service 层处理，View 层仅渲染
-
-### 反模式 2：Store 中存储所有分页数据
-
-**问题：**
-```typescript
-// ❌ 错误：Store 存储所有页面
-interface Store {
-  allPages: Map<number, PageData>  // 可能无限增长
-}
-```
-
-**正确做法：** Composable 管理缓存，Store 仅存当前页
-
----
-
-## 验收标准
-
-### 在线壁纸页面
-- [ ] 显示传统分页条（页码导航）
-- [ ] 显示总条目数（"共 X 张"）
-- [ ] 点击页码可跳转到对应页面
-- [ ] 已访问页面有缓存，不重复请求
-- [ ] 收藏状态正确显示（三态心形）
-- [ ] 收藏操作后状态正确同步
-
-### 我的收藏页面
-- [ ] 支持无限滚动分页
-- [ ] 侧边栏收藏数目实时更新
-- [ ] 滚动到底部自动加载更多
-- [ ] 加载完成显示"没有更多"
+- [ ] 全局搜索类型名
+- [ ] 检查是否在 index.ts 中 re-export
+- [ ] 检查是否被外部包引用
 
 ---
 
 ## Sources
 
-- 现有代码分析：`useWallpaperList.ts`, `useFavorites.ts`, `WallpaperService.ts`, `FavoritesService.ts`, `favorites.handler.ts`
-- 类型定义：`types/index.ts`, `types/favorite.ts`
+- 现有代码分析：`src/` 目录结构
 - 架构文档：`.planning/codebase/ARCHITECTURE.md`
+- 技术债务：`.planning/codebase/CONCERNS.md`
+- 陷阱指南：`.planning/research/PITFALLS.md`
 
 ---
 
-*Architecture research for: v6.0 传统分页重构*
+*Architecture research for: v7.0 代码结构优化*
 *Researched: 2026-05-04*
