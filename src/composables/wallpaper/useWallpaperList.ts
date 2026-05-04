@@ -28,6 +28,8 @@ function toPageData(result: WallpaperSearchResult): PageData {
 export interface UseWallpaperListReturn {
   // 状态（ComputedRef）
   wallpapers: ComputedRef<TotalPageData>
+  currentPageData: ComputedRef<PageData>
+  totalCount: ComputedRef<number>
   loading: ComputedRef<boolean>
   error: ComputedRef<boolean>
   queryParams: ComputedRef<GetParams | null>
@@ -35,7 +37,10 @@ export interface UseWallpaperListReturn {
 
   // 方法
   fetch: (params: GetParams | null) => Promise<boolean>
+  goToPage: (page: number) => Promise<boolean>
   loadMore: () => Promise<boolean>
+  refresh: () => Promise<boolean>
+  clearCache: () => void
   reset: () => void
   saveCustomParams: (params: CustomParams) => Promise<boolean>
   loadSavedParams: () => Promise<CustomParams | null>
@@ -61,12 +66,28 @@ export function useWallpaperList(): UseWallpaperListReturn {
   const store = useWallpaperStore()
   const { showError } = useAlert()
 
+  /** 上次查询参数（用于检测变化） */
+  let lastQueryParams: GetParams | null = null
+
+  /**
+   * 检查搜索参数是否变化
+   */
+  function isParamsChanged(params: GetParams | null): boolean {
+    return JSON.stringify(lastQueryParams) !== JSON.stringify(params)
+  }
+
   /**
    * 获取壁纸列表
    * @param params - 搜索参数
    * @returns 是否成功
    */
   const fetch = async (params: GetParams | null): Promise<boolean> => {
+    // 检测搜索条件是否变化
+    if (isParamsChanged(params)) {
+      store.clearPageCache()
+      lastQueryParams = params ? { ...params } : null
+    }
+
     store.loading = true
     store.error = false
 
@@ -80,14 +101,61 @@ export function useWallpaperList(): UseWallpaperListReturn {
     }
 
     store.queryParams = params
+    lastQueryParams = params ? { ...params } : null
 
-    // result.data 已在成功检查后确认存在
     const pageData = toPageData(result.data!)
     store.totalPageData = {
       sections: [pageData],
       totalPage: pageData.totalPage,
       currentPage: pageData.currentPage,
     }
+
+    // 同时更新分页状态
+    store.setCachedPage(pageData.currentPage, pageData)
+    store.currentPageData = { ...pageData }
+    store.totalCount = result.data!.meta.total
+
+    store.loading = false
+    return true
+  }
+
+  /**
+   * 跳转到指定页
+   * @param page - 页码（1-based）
+   * @returns 是否成功
+   */
+  const goToPage = async (page: number): Promise<boolean> => {
+    // 边界检查
+    if (page < 1) return false
+
+    const cachedTotalPage = store.currentPageData.totalPage
+    if (cachedTotalPage > 0 && page > cachedTotalPage) return false
+
+    // 检查缓存
+    const cached = store.getCachedPage(page)
+    if (cached) {
+      store.currentPageData = { ...cached }
+      return true
+    }
+
+    // 从 API 加载
+    store.loading = true
+    store.error = false
+
+    const params: GetParams = { ...store.queryParams, page } as GetParams
+    const result = await wallpaperService.search(params)
+
+    if (!result.success) {
+      showError(result.error?.message || '获取壁纸失败')
+      store.error = true
+      store.loading = false
+      return false
+    }
+
+    const pageData = toPageData(result.data!)
+    store.setCachedPage(page, pageData)
+    store.currentPageData = { ...pageData }
+    store.totalCount = result.data!.meta.total
     store.loading = false
     return true
   }
@@ -140,8 +208,35 @@ export function useWallpaperList(): UseWallpaperListReturn {
       totalPage: 0,
       currentPage: 0,
     }
+    store.currentPageData = { data: [], totalPage: 0, currentPage: 0 }
+    store.pageCache = new Map()
+    store.totalCount = 0
     store.queryParams = null
     store.error = false
+    lastQueryParams = null
+  }
+
+  /**
+   * 刷新当前页
+   * @returns 是否成功
+   */
+  const refresh = async (): Promise<boolean> => {
+    const currentPage = store.currentPageData.currentPage
+    if (currentPage < 1) return false
+
+    // 清除当前页缓存
+    const cache = store.pageCache
+    cache.delete(currentPage)
+    store.pageCache = cache
+
+    return goToPage(currentPage)
+  }
+
+  /**
+   * 清空页面缓存
+   */
+  const clearCache = (): void => {
+    store.clearPageCache()
   }
 
   /**
@@ -189,6 +284,8 @@ export function useWallpaperList(): UseWallpaperListReturn {
   return {
     // 状态
     wallpapers: computed(() => store.totalPageData),
+    currentPageData: computed(() => store.currentPageData),
+    totalCount: computed(() => store.totalCount),
     loading: computed(() => store.loading),
     error: computed(() => store.error),
     queryParams: computed(() => store.queryParams),
@@ -196,7 +293,10 @@ export function useWallpaperList(): UseWallpaperListReturn {
 
     // 方法
     fetch,
+    goToPage,
     loadMore,
+    refresh,
+    clearCache,
     reset,
     saveCustomParams,
     loadSavedParams,

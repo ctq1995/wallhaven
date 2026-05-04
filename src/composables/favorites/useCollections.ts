@@ -66,6 +66,8 @@ export function useCollections(): UseCollectionsReturn {
       await load()
       // 同时刷新收藏项（删除收藏夹会移除相关收藏项）
       await store.loadFavorites()
+      // 刷新计数
+      await store.loadCounts()
       showSuccess('收藏夹删除成功')
       return true
     }
