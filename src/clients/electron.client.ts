@@ -10,10 +10,18 @@ import type {
   CacheInfo,
   ResumeDownloadParams,
   PendingDownload,
+  FavoritesGetPaginatedRequest,
+  FavoritesCountsResponse,
 } from '@/shared/types/ipc'
 import { ErrorCodes } from '@/errors'
 
-import type { Collection, FavoriteItem, WallpaperItem } from '@/types'
+import type {
+  Collection,
+  FavoriteItem,
+  WallpaperItem,
+  PaginationParams,
+  PaginatedFavoritesResult,
+} from '@/types'
 
 /**
  * ElectronClient 实现类
@@ -450,6 +458,58 @@ class ElectronClientImpl {
       return {
         success: false,
         error: result.error || { code: 'FAVORITES_ERROR', message: '获取壁纸收藏夹失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 分页获取收藏项
+   */
+  async favoritesGetPaginated(
+    params: PaginationParams & { collectionId?: string },
+  ): Promise<IpcResponse<PaginatedFavoritesResult>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<PaginatedFavoritesResult>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetPaginated(params)
+      if (result.success) {
+        return { success: true, data: result.data as PaginatedFavoritesResult }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '分页获取收藏失败' },
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'FAVORITES_ERROR', message: String(error) },
+      }
+    }
+  }
+
+  /**
+   * 获取所有收藏夹计数
+   */
+  async favoritesGetCounts(): Promise<IpcResponse<Record<string, number>>> {
+    if (!this.isAvailable()) {
+      return this.createUnavailableResponse<Record<string, number>>()
+    }
+
+    try {
+      const result = await window.electronAPI.favoritesGetCounts()
+      if (result.success) {
+        return { success: true, data: result.data as Record<string, number> }
+      }
+      return {
+        success: false,
+        error: result.error || { code: 'FAVORITES_ERROR', message: '获取收藏计数失败' },
       }
     } catch (error) {
       return {
