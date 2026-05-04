@@ -47,7 +47,7 @@
 - [x] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods ✅ 2026-05-04
 - [x] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection ✅ 2026-05-04
 - [x] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts ✅ 2026-05-04
-- [ ] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration
+- [x] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration ✅ 2026-05-04
 - [ ] **Phase 50: Favorites Page** — Infinite scroll, sidebar counts
 
 </details>
@@ -87,18 +87,18 @@
   4. Sidebar counts update immediately after favorite add/remove operations
 **Plans**: 48-PLAN.md (Wave 1-3, 6 tasks) — Created 2026-05-04
 
-### Phase 49: View Layer - Pagination Bar
+### Phase 49: View Layer - Pagination Bar ✅
 **Goal**: 实现传统分页 UI 并集成到在线壁纸页面
 **Depends on**: Phase 48
 **Requirements**: ONLPAG-01, ONLPAG-02, ONLPAG-03, ONLPAG-04, ONLPAG-05, ONLPAG-08, FAVSTA-03, FAVSTA-04
 **Success Criteria** (what must be TRUE):
-  1. Pagination bar displays correctly with page numbers, ellipsis, and total count
-  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page
-  3. Arrow keys navigate between pages; page scrolls to top on navigation
-  4. Favorite status (three-state heart) updates immediately after add/remove operations
-**Plans**: 2 plans (Wave 1-2)
-  - [ ] 49-01-PLAN.md — PaginationBar 组件与分页导航
-  - [ ] 49-02-PLAN.md — 收藏状态同步
+  1. Pagination bar displays correctly with page numbers, ellipsis, and total count ✅
+  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page ✅
+  3. Arrow keys navigate between pages; page scrolls to top on navigation ✅
+  4. Favorite status (three-state heart) updates immediately after add/remove operations ✅
+**Plans**: 2 plans (Wave 1-2) — Completed 2026-05-04
+  - [x] 49-01-PLAN.md — PaginationBar 组件与分页导航 ✅
+  - [x] 49-02-PLAN.md — 收藏状态同步 ✅
 
 ### Phase 50: Favorites Page - Infinite Scroll
 **Goal**: 实现收藏页面的无限滚动分页和侧边栏实时计数
@@ -120,7 +120,7 @@
 | 46. Infrastructure | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 47. Repository & Service Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 49. View Layer - Pagination Bar | v6.0 | 2/2 | Ready | - |
+| 49. View Layer - Pagination Bar | v6.0 | 2/2 | ✅ Complete | 2026-05-04 |
 | 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
 
 ---
@@ -131,34 +131,35 @@
 
 | Requirement | Phase | Description | Status |
 |-------------|-------|-------------|--------|
-| ONLPAG-01 | 49 | Pagination bar with page number navigation | Pending |
-| ONLPAG-02 | 49 | Current page highlighted | Pending |
-| ONLPAG-03 | 49 | Previous/Next buttons with disabled states | Pending |
-| ONLPAG-04 | 49 | Total item count displayed | Pending |
-| ONLPAG-05 | 49 | Scroll to top on page change | Pending |
-| ONLPAG-06 | 48 | Visited pages cached in memory | Pending |
-| ONLPAG-07 | 48 | Cache cleared on filter change | Pending |
-| ONLPAG-08 | 49 | Arrow key navigation | Pending |
-| FAVSTA-01 | 46 | is_favorite field in WallpaperItem | Pending |
-| FAVSTA-02 | 47 | is_favorite computed from database | Pending |
-| FAVSTA-03 | 49 | Favorite status updates after operations | Pending |
-| FAVSTA-04 | 49 | Three-state heart indicator | Pending |
-| FAVPAG-01 | 48, 50 | Infinite scroll for favorites | Pending |
-| FAVPAG-02 | 46, 47 | SQLite LIMIT/OFFSET pagination | Pending |
-| FAVPAG-03 | 48, 50 | Loading indicator while fetching | Pending |
-| FAVPAG-04 | 48, 50 | "没有更多" message when complete | Pending |
-| FAVPAG-05 | 48, 50 | Scroll position preserved on back | Pending |
-| SIDECT-01 | 48 | Sidebar count updates on add | Pending |
-| SIDECT-02 | 48 | Sidebar count updates on remove | Pending |
-| SIDECT-03 | 48 | "全部收藏" shows unique count | Pending |
-| SIDECT-04 | 48 | Per-collection counts displayed | Pending |
-| DATAREF-01 | 46 | Replace TotalPageData with PageData | Pending |
-| DATAREF-02 | 46 | Store currentPageData + pageCache Map | Pending |
-| DATAREF-03 | 46 | Favorites keeps TotalPageData for infinite scroll | Pending |
+| ONLPAG-01 | 49 | Pagination bar with page number navigation | ✅ Complete |
+| ONLPAG-02 | 49 | Current page highlighted | ✅ Complete |
+| ONLPAG-03 | 49 | Previous/Next buttons with disabled states | ✅ Complete |
+| ONLPAG-04 | 49 | Total item count displayed | ✅ Complete |
+| ONLPAG-05 | 49 | Scroll to top on page change | ✅ Complete |
+| ONLPAG-06 | 48 | Visited pages cached in memory | ✅ Complete |
+| ONLPAG-07 | 48 | Cache cleared on filter change | ✅ Complete |
+| ONLPAG-08 | 49 | Arrow key navigation | ✅ Complete |
+| FAVSTA-01 | 46 | is_favorite field in WallpaperItem | ✅ Complete |
+| FAVSTA-02 | 47 | is_favorite computed from database | ✅ Complete |
+| FAVSTA-03 | 49 | Favorite status updates after operations | ✅ Complete |
+| FAVSTA-04 | 49 | Three-state heart indicator | ✅ Complete |
+| FAVPAG-01 | 48, 50 | Infinite scroll for favorites | Partial (48 done) |
+| FAVPAG-02 | 46, 47 | SQLite LIMIT/OFFSET pagination | ✅ Complete |
+| FAVPAG-03 | 48, 50 | Loading indicator while fetching | Partial (48 done) |
+| FAVPAG-04 | 48, 50 | "没有更多" message when complete | Partial (48 done) |
+| FAVPAG-05 | 48, 50 | Scroll position preserved on back | Partial (48 done) |
+| SIDECT-01 | 48 | Sidebar count updates on add | ✅ Complete |
+| SIDECT-02 | 48 | Sidebar count updates on remove | ✅ Complete |
+| SIDECT-03 | 48 | "全部收藏" shows unique count | ✅ Complete |
+| SIDECT-04 | 48 | Per-collection counts displayed | ✅ Complete |
+| DATAREF-01 | 46 | Replace TotalPageData with PageData | ✅ Complete |
+| DATAREF-02 | 46 | Store currentPageData + pageCache Map | ✅ Complete |
+| DATAREF-03 | 46 | Favorites keeps TotalPageData for infinite scroll | ✅ Complete |
 
 **Coverage:**
 - v6.0 requirements: 24 total
-- Mapped to phases: 24/24 ✓
+- Completed: 20/24 (83%)
+- Remaining: 4 (FAVPAG-01, 03, 04, 05 partial - Phase 50)
 
 ---
 
