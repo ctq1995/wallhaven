@@ -44,6 +44,7 @@ export interface UseWallpaperListReturn {
   reset: () => void
   saveCustomParams: (params: CustomParams) => Promise<boolean>
   loadSavedParams: () => Promise<CustomParams | null>
+  updateItemFavoriteStatus: (wallpaperId: string, isFavorite: number) => void
 }
 
 /**
@@ -281,6 +282,39 @@ export function useWallpaperList(): UseWallpaperListReturn {
     return null
   }
 
+  /**
+   * 更新当前页中某个壁纸的收藏状态
+   * @param wallpaperId - 壁纸 ID
+   * @param isFavorite - 新的收藏状态值 (0, 1, 2)
+   */
+  const updateItemFavoriteStatus = (wallpaperId: string, isFavorite: number): void => {
+    const currentData = store.currentPageData
+    const itemIndex = currentData.data.findIndex((item) => item.id === wallpaperId)
+
+    if (itemIndex === -1) return
+
+    // 创建新的数据对象以触发 shallowRef 更新
+    const newData = [...currentData.data]
+    newData[itemIndex] = { ...newData[itemIndex], is_favorite: isFavorite as 0 | 1 | 2 }
+
+    store.currentPageData = {
+      ...currentData,
+      data: newData,
+    }
+
+    // 同时更新缓存
+    const page = currentData.currentPage
+    const cachedPage = store.getCachedPage(page)
+    if (cachedPage) {
+      const cachedData = [...cachedPage.data]
+      const cachedIndex = cachedData.findIndex((item) => item.id === wallpaperId)
+      if (cachedIndex !== -1) {
+        cachedData[cachedIndex] = { ...cachedData[cachedIndex], is_favorite: isFavorite as 0 | 1 | 2 }
+        store.setCachedPage(page, { ...cachedPage, data: cachedData })
+      }
+    }
+  }
+
   return {
     // 状态
     wallpapers: computed(() => store.totalPageData),
@@ -300,5 +334,6 @@ export function useWallpaperList(): UseWallpaperListReturn {
     reset,
     saveCustomParams,
     loadSavedParams,
+    updateItemFavoriteStatus,
   }
 }
