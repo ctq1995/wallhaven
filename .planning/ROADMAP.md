@@ -46,7 +46,7 @@
 
 - [x] **Phase 46: Infrastructure** — Types, IPC handlers, Client methods ✅ 2026-05-04
 - [x] **Phase 47: Repository & Service Layer** — Pagination methods, is_favorite injection ✅ 2026-05-04
-- [ ] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts — PLAN READY 2026-05-04
+- [x] **Phase 48: Composable & Store Layer** — Pagination logic, caching, reactive counts ✅ 2026-05-04
 - [ ] **Phase 49: View Layer - Pagination Bar** — PaginationBar component, online page integration
 - [ ] **Phase 50: Favorites Page** — Infinite scroll, sidebar counts
 
@@ -117,7 +117,7 @@
 |-------|-----------|----------------|--------|-----------|
 | 46. Infrastructure | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 47. Repository & Service Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
-| 48. Composable & Store Layer | v6.0 | 1/1 | Ready | 2026-05-04 |
+| 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 49. View Layer - Pagination Bar | v6.0 | 0/TBD | Waiting | - |
 | 50. Favorites Page | v6.0 | 0/TBD | Waiting | - |
 
