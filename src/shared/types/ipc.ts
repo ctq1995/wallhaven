@@ -66,6 +66,8 @@ export const IPC_CHANNELS = {
   FAVORITES_MOVE: 'favorites-move',
   FAVORITES_IS_FAVORITE: 'favorites-is-favorite',
   FAVORITES_GET_COLLECTIONS_FOR_WALLPAPER: 'favorites-get-collections-for-wallpaper',
+  FAVORITES_GET_PAGINATED: 'favorites-get-paginated',
+  FAVORITES_GET_COUNTS: 'favorites-get-counts',
 } as const
 
 // ==================== IPC 响应类型 ====================
@@ -339,6 +341,22 @@ export interface CleanupOrphanFilesResponse {
   stateFilesDeleted: number
   errors?: string[]
 }
+
+/**
+ * 分页获取收藏请求参数
+ */
+export interface FavoritesGetPaginatedRequest {
+  collectionId?: string
+  limit: number
+  offset: number
+}
+
+/**
+ * 收藏计数响应
+ * key: collectionId 或 '_total'（表示全部收藏的唯一壁纸数）
+ * value: 计数
+ */
+export type FavoritesCountsResponse = Record<string, number>
 
 // ==================== 类型守卫 ====================
 
