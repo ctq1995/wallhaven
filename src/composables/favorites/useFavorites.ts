@@ -7,7 +7,8 @@
 
 import { computed, type ComputedRef } from 'vue'
 import { useFavoritesStore } from '@/stores/modules/favorites'
-import { favoritesService, favoritesRepository } from '@/services'
+import { favoritesService } from '@/services'
+import { favoritesRepository } from '@/repositories'
 import { useAlert } from '@/composables'
 import type { FavoriteItem, WallpaperItem, PageData } from '@/types'
 
