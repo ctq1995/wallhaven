@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v7.0
 milestone_name: 代码结构优化
-status: planning
-last_updated: "2026-05-04T15:00:00.000Z"
-last_activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
+status: ready
+last_updated: "2026-05-04T16:00:00.000Z"
+last_activity: 2026-05-04 — Roadmap created for v7.0 代码结构优化
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,7 +17,7 @@ progress:
 
 > Updated: 2026-05-04
 > Current: Milestone v7.0 — 代码结构优化
-> Status: Planning
+> Status: Ready
 
 ---
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 51 (Types & Helpers Cleanup)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
+Status: Not Started
+Last activity: 2026-05-04 — Roadmap created for v7.0 代码结构优化
 
 ---
 
@@ -42,11 +42,51 @@ Last activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
 
 | Metric | Value |
 |--------|-------|
-| Total phases (v7.0) | 0 |
+| Total phases (v7.0) | 3 |
 | Completed phases | 0 |
 | Total plans | 0 |
 | Completed plans | 0 |
 | Overall progress | 0% |
+
+---
+
+## Phase Status
+
+### Phase 51: Types & Helpers Cleanup
+**Status:** NOT STARTED
+**Requirements:** 9 (DEADTYPE-01~03, DEADFUNC-01~06)
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| DEADTYPE-01 | Pending | Remove duplicate `src/types/favorite.ts` |
+| DEADTYPE-02 | Pending | Remove empty `src/types/ipc/index.ts` |
+| DEADTYPE-03 | Pending | Remove empty `src/types/api/index.ts` |
+| DEADFUNC-01 | Pending | Remove unused `debounce` function |
+| DEADFUNC-02 | Pending | Remove unused `throttle` function |
+| DEADFUNC-03 | Pending | Remove unused `deepClone` function |
+| DEADFUNC-04 | Pending | Remove unused `filterEmptyValues` function |
+| DEADFUNC-05 | Pending | Remove unused `preloadImages` function |
+| DEADFUNC-06 | Pending | Remove unused `cleanupObject` function |
+
+### Phase 52: Test Components Removal
+**Status:** NOT STARTED
+**Requirements:** 4 (DEADCOMP-01~04)
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| DEADCOMP-01 | Pending | Remove `src/components/ElectronTest.vue` |
+| DEADCOMP-02 | Pending | Remove `src/components/AlertDemo.vue` |
+| DEADCOMP-03 | Pending | Remove `src/views/APITest.vue` |
+| DEADCOMP-04 | Pending | Remove `src/views/Diagnostic.vue` |
+
+### Phase 53: Type Directory Organization
+**Status:** NOT STARTED
+**Requirements:** 2 (TYPEORG-01~02)
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| TYPEORG-01 | Pending | Consolidate type definitions under `src/types/` |
+| TYPEORG-02 | Pending | Ensure consistent path aliases (`@/types/...`) |
 
 ---
 
@@ -65,4 +105,18 @@ Last activity: 2026-05-04 — Milestone v7.0 代码结构优化 started
 
 ---
 
-*Updated: 2026-05-04 — Milestone v7.0 代码结构优化 started*
+## Workflow State
+
+```json
+{
+  "milestone": "v7.0",
+  "phase": 51,
+  "phase_status": "NOT STARTED",
+  "last_action": "ROADMAP CREATED",
+  "next_action": "START PHASE 51"
+}
+```
+
+---
+
+*Updated: 2026-05-04 — Roadmap created for v7.0 代码结构优化*

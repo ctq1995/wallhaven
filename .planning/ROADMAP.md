@@ -23,23 +23,11 @@
 - ✅ **v4.5 在线壁纸页面小红心状态** -- Phase 40 (shipped 2026-05-02)
 - ✅ **v5.0 electron-store 到 SQLite 迁移** -- Phases 41-45 (shipped 2026-05-03)
 - ✅ **v6.0 传统分页重构** -- Phases 46-50 (shipped 2026-05-04)
+- 🔵 **v7.0 代码结构优化** -- Phases 51-53 (IN PROGRESS)
 
 ---
 
 ## Phases
-
-<details>
-<summary>✅ v5.0 electron-store 到 SQLite 迁移 (Phases 41-45) — SHIPPED 2026-05-03</summary>
-
-- [x] Phase 41: Database Infrastructure (2/2 plans)
-- [x] Phase 42: Main Process + Store Handler Cutover (2/2 plans)
-- [x] Phase 43: Favorites & Collections Migration (2/2 plans)
-- [x] Phase 44: Migration Script (2/2 plans)
-- [x] Phase 45: Cleanup & Final Verification (6/6 plans)
-
-</details>
-
----
 
 <details>
 <summary>✅ v6.0 传统分页重构 (Phases 46-50) — SHIPPED 2026-05-04</summary>
@@ -54,63 +42,48 @@
 
 ---
 
+<details>
+<summary>🔵 v7.0 代码结构优化 (Phases 51-53) — IN PROGRESS</summary>
+
+- [ ] **Phase 51: Types & Helpers Cleanup** — 删除重复类型、空导出文件、未使用函数
+- [ ] **Phase 52: Test Components Removal** — 删除测试/演示组件
+- [ ] **Phase 53: Type Directory Organization** — 整理类型定义目录结构
+
+</details>
+
+---
+
 ## Phase Details
 
-### Phase 46: Infrastructure ✅
-**Goal**: 建立分页功能的类型系统和 IPC 通信基础
-**Depends on**: Phase 45 (v5.0 complete)
-**Requirements**: DATAREF-01, DATAREF-02, DATAREF-03, FAVSTA-01, FAVPAG-02
+### Phase 51: Types & Helpers Cleanup
+**Goal**: 删除重复类型定义、空导出文件和未使用的工具函数
+**Depends on**: Phase 50 (v6.0 complete)
+**Requirements**: DEADTYPE-01~03, DEADFUNC-01~06
 **Success Criteria** (what must be TRUE):
-  1. TypeScript compiles without errors after type additions (is_favorite, PageCache, PaginationParams) ✅
-  2. New IPC handlers defined with NOT_IMPLEMENTED placeholder (Phase 47 will implement) ✅
-  3. ElectronClient methods successfully invoke new handlers with correct parameter passing ✅
-**Plans**: 46-PLAN.md (Wave 1, 11 tasks) — Completed 2026-05-04
+  1. TypeScript 编译通过：`npm run type-check` 无错误
+  2. ESLint 检查通过：`npm run lint` 无错误
+  3. 应用正常启动并运行
+  4. 所有现有功能保持不变
 
-### Phase 47: Repository & Service Layer ✅
-**Goal**: 实现 Repository 层分页查询和 Service 层收藏状态计算
-**Depends on**: Phase 46
-**Requirements**: FAVSTA-02, FAVPAG-02 (continued)
+### Phase 52: Test Components Removal
+**Goal**: 删除未使用的测试/演示组件
+**Depends on**: Phase 51
+**Requirements**: DEADCOMP-01~04
 **Success Criteria** (what must be TRUE):
-  1. FavoritesService.getPaginatedFavorites(24, 0) returns first 24 items with correct total count ✅
-  2. WallpaperService.search() returns items with correct is_favorite values matching database state ✅
-  3. Total count query returns unique wallpaper count (not favorite record count) ✅
-**Plans**: 47-PLAN.md (Wave 1, 9 tasks) — Completed 2026-05-04
+  1. TypeScript 编译通过：`npm run type-check` 无错误
+  2. ESLint 检查通过：`npm run lint` 无错误
+  3. 应用正常启动，路由导航无 404
+  4. 生产构建无警告
 
-### Phase 48: Composable & Store Layer
-**Goal**: 实现 Composable 层的分页状态管理、缓存策略和响应式计数
-**Depends on**: Phase 47
-**Requirements**: ONLPAG-06, ONLPAG-07, FAVPAG-01, FAVPAG-03, FAVPAG-04, FAVPAG-05, SIDECT-01, SIDECT-02, SIDECT-03, SIDECT-04
+### Phase 53: Type Directory Organization
+**Goal**: 整理类型定义目录结构，统一导入路径
+**Depends on**: Phase 52
+**Requirements**: TYPEORG-01~02
 **Success Criteria** (what must be TRUE):
-  1. Switching to a cached page loads instantly without API call
-  2. Changing search filters clears the page cache
-  3. useFavorites.goToPage() correctly loads specified page
-  4. Sidebar counts update immediately after favorite add/remove operations
-**Plans**: 48-PLAN.md (Wave 1-3, 6 tasks) — Created 2026-05-04
-
-### Phase 49: View Layer - Pagination Bar ✅
-**Goal**: 实现传统分页 UI 并集成到在线壁纸页面
-**Depends on**: Phase 48
-**Requirements**: ONLPAG-01, ONLPAG-02, ONLPAG-03, ONLPAG-04, ONLPAG-05, ONLPAG-08, FAVSTA-03, FAVSTA-04
-**Success Criteria** (what must be TRUE):
-  1. Pagination bar displays correctly with page numbers, ellipsis, and total count ✅
-  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page ✅
-  3. Arrow keys navigate between pages; page scrolls to top on navigation ✅
-  4. Favorite status (three-state heart) updates immediately after add/remove operations ✅
-**Plans**: 2 plans (Wave 1-2) — Completed 2026-05-04
-  - [x] 49-01-PLAN.md — PaginationBar 组件与分页导航 ✅
-  - [x] 49-02-PLAN.md — 收藏状态同步 ✅
-
-### Phase 50: Favorites Page Pagination ✅
-**Goal**: 实现收藏页面的传统分页 UI，复用 PaginationBar 组件，与在线壁纸页面保持一致
-**Depends on**: Phase 48, Phase 49
-**Requirements**: FAVPAG-01 (updated), FAVPAG-03, FAVPAG-04, FAVPAG-05
-**Success Criteria** (what must be TRUE):
-  1. Pagination bar displays correctly with page numbers, ellipsis, and total count ✅
-  2. Clicking a page number navigates to that page; Previous disabled on page 1, Next disabled on last page ✅
-  3. Switching collection filter resets to page 1 and clears page cache ✅
-  4. Unfavoriting removes item from current page and updates counts ✅
-  5. Navigating to detail page and back preserves scroll position ✅
-**Plans**: 50-PLAN.md (Wave 1, 6 tasks) — Completed 2026-05-04
+  1. TypeScript 编译通过：`npm run type-check` 无错误
+  2. 所有类型导入使用 `@/types/...` 路径别名
+  3. 类型定义目录结构清晰：domain、api、ipc 等子目录
+  4. 应用正常启动并运行
 
 ---
 
@@ -123,69 +96,51 @@
 | 48. Composable & Store Layer | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
 | 49. View Layer - Pagination Bar | v6.0 | 2/2 | ✅ Complete | 2026-05-04 |
 | 50. Favorites Page | v6.0 | 1/1 | ✅ Complete | 2026-05-04 |
+| 51. Types & Helpers Cleanup | v7.0 | 0/1 | 🔵 Not Started | — |
+| 52. Test Components Removal | v7.0 | 0/1 | 🔵 Not Started | — |
+| 53. Type Directory Organization | v7.0 | 0/1 | 🔵 Not Started | — |
 
 ---
 
 ## Requirement Traceability
 
-### v6.0 Traceability
+### v7.0 Traceability
 
 | Requirement | Phase | Description | Status |
 |-------------|-------|-------------|--------|
-| ONLPAG-01 | 49 | Pagination bar with page number navigation | ✅ Complete |
-| ONLPAG-02 | 49 | Current page highlighted | ✅ Complete |
-| ONLPAG-03 | 49 | Previous/Next buttons with disabled states | ✅ Complete |
-| ONLPAG-04 | 49 | Total item count displayed | ✅ Complete |
-| ONLPAG-05 | 49 | Scroll to top on page change | ✅ Complete |
-| ONLPAG-06 | 48 | Visited pages cached in memory | ✅ Complete |
-| ONLPAG-07 | 48 | Cache cleared on filter change | ✅ Complete |
-| ONLPAG-08 | 49 | Arrow key navigation | ✅ Complete |
-| FAVSTA-01 | 46 | is_favorite field in WallpaperItem | ✅ Complete |
-| FAVSTA-02 | 47 | is_favorite computed from database | ✅ Complete |
-| FAVSTA-03 | 49 | Favorite status updates after operations | ✅ Complete |
-| FAVSTA-04 | 49 | Three-state heart indicator | ✅ Complete |
-| FAVPAG-01 | 48, 50 | Traditional pagination for favorites | ✅ Complete |
-| FAVPAG-02 | 46, 47 | SQLite LIMIT/OFFSET pagination | ✅ Complete |
-| FAVPAG-03 | 48, 50 | Loading indicator while fetching | ✅ Complete |
-| FAVPAG-04 | 48, 50 | "没有更多" message when complete | ✅ Complete |
-| FAVPAG-05 | 48, 50 | Scroll position preserved on back | ✅ Complete |
-| SIDECT-01 | 48 | Sidebar count updates on add | ✅ Complete |
-| SIDECT-02 | 48 | Sidebar count updates on remove | ✅ Complete |
-| SIDECT-03 | 48 | "全部收藏" shows unique count | ✅ Complete |
-| SIDECT-04 | 48 | Per-collection counts displayed | ✅ Complete |
-| DATAREF-01 | 46 | Replace TotalPageData with PageData | ✅ Complete |
-| DATAREF-02 | 46 | Store currentPageData + pageCache Map | ✅ Complete |
-| DATAREF-03 | 46 | Favorites keeps TotalPageData for infinite scroll | ✅ Complete |
+| DEADTYPE-01 | 51 | Remove duplicate `src/types/favorite.ts` | Pending |
+| DEADTYPE-02 | 51 | Remove empty `src/types/ipc/index.ts` | Pending |
+| DEADTYPE-03 | 51 | Remove empty `src/types/api/index.ts` | Pending |
+| DEADFUNC-01 | 51 | Remove unused `debounce` function | Pending |
+| DEADFUNC-02 | 51 | Remove unused `throttle` function | Pending |
+| DEADFUNC-03 | 51 | Remove unused `deepClone` function | Pending |
+| DEADFUNC-04 | 51 | Remove unused `filterEmptyValues` function | Pending |
+| DEADFUNC-05 | 51 | Remove unused `preloadImages` function | Pending |
+| DEADFUNC-06 | 51 | Remove unused `cleanupObject` function | Pending |
+| DEADCOMP-01 | 52 | Remove `src/components/ElectronTest.vue` | Pending |
+| DEADCOMP-02 | 52 | Remove `src/components/AlertDemo.vue` | Pending |
+| DEADCOMP-03 | 52 | Remove `src/views/APITest.vue` | Pending |
+| DEADCOMP-04 | 52 | Remove `src/views/Diagnostic.vue` | Pending |
+| TYPEORG-01 | 53 | Consolidate type definitions under `src/types/` | Pending |
+| TYPEORG-02 | 53 | Ensure consistent path aliases (`@/types/...`) | Pending |
 
 **Coverage:**
-- v6.0 requirements: 24 total
-- Completed: 24/24 (100%)
+- v7.0 requirements: 15 total
+- Completed: 0/15 (0%)
 
 ---
 
 ## Dependencies
 
 ```
-Phase 45 (v5.0 Cleanup)
+Phase 50 (v6.0 Favorites Page)
     ↓
-Phase 46 (Infrastructure)
+Phase 51 (Types & Helpers Cleanup)
     ↓
-Phase 47 (Repository & Service)
+Phase 52 (Test Components Removal)
     ↓
-Phase 48 (Composable & Store)
-    ↓
-┌───────────────────┬───────────────────┐
-│                   │                   │
-▼                   ▼                   │
-Phase 49        Phase 50                │
-(Pagination Bar) (Favorites Page)       │
-│                   │                   │
-└───────────────────┴───────────────────┘
+Phase 53 (Type Directory Organization)
 ```
-
-**Notes:**
-- Phase 49 and Phase 50 can partially overlap (different pages)
-- Phase 48 must complete before both Phase 49 and 50
 
 ---
 
@@ -193,11 +148,10 @@ Phase 49        Phase 50                │
 
 | Risk | Mitigation | Phase |
 |------|------------|-------|
-| Cache invalidation on favorite changes | Update cached page data directly instead of clearing | 48 |
-| Concurrent page requests | Use request sequence number or AbortController | 48 |
-| LEFT JOIN data duplication | Use EXISTS subquery instead of JOIN | 47 |
-| Scroll position on page change | Scroll to top in goToPage() method | 49 |
+| 删除"看似未使用"的导出 | 全局搜索确认无引用后再删除 | 51 |
+| 类型变更导致隐式错误 | 类型变更后运行完整测试 | 53 |
+| 路由引用测试组件 | 检查并移除相关路由配置 | 52 |
 
 ---
 
-*Roadmap updated: 2026-05-04 — v6.0 传统分页重构 complete*
+*Roadmap updated: 2026-05-04 — v7.0 代码结构优化 roadmap created*
