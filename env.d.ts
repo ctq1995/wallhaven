@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { Collection, FavoriteItem } from '@/types/favorite'
+import type { Collection, FavoriteItem } from '@/types/domain/favorite'
 import type { WallpaperItem } from '@/types/index'
 
 // 下载进度数据类型
