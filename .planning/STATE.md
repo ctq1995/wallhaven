@@ -1,29 +1,29 @@
 ---
 gsd_state_version: 1.0
-milestone: v5.0
-milestone_name: Cleanup & Final Verification
-status: ready_to_execute
-last_updated: "2026-05-03T22:50:00.000Z"
-last_activity: 2026-05-03 — Phase 45 planning complete, 6 plans ready
+milestone: v6.0
+milestone_name: 传统分页重构
+status: planning
+last_updated: "2026-05-04T14:30:00.000Z"
+last_activity: 2026-05-04 — Milestone v6.0 started
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 14
-  completed_plans: 8
-  percent: 80
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
-> Updated: 2026-05-03
-> Current: Milestone v5.0 — Phase 45 ready for planning
+> Updated: 2026-05-04
+> Current: Milestone v6.0 — Defining requirements
 > Status: Planning
 
 ---
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03)
+See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** 收藏管理，分类随心 — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-05-03)
 
 ## Current Position
 
-Phase: 45 — Cleanup & Final Verification
-Plan: 6 plans (ready to execute)
-Status: Ready to execute
-Last activity: 2026-05-03 — Phase 45 planning complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-04 — Milestone v6.0 started
 
 ---
 
@@ -42,57 +42,42 @@ Last activity: 2026-05-03 — Phase 45 planning complete
 
 | Metric | Value |
 |--------|-------|
-| Total phases (v5.0) | 5 |
-| Completed phases | 4 |
-| Total plans | 14 |
-| Completed plans | 8 |
-| Phase 45 plans | 6 |
-| Overall progress | 80% |
+| Total phases (v6.0) | 0 |
+| Completed phases | 0 |
+| Total plans | 0 |
+| Completed plans | 0 |
+| Overall progress | 0% |
 
 ---
 
 ## Accumulated Context
 
-### v5.0 Milestone — electron-store 到 SQLite 迁移
+### v6.0 Milestone — 传统分页重构
 
-**Goal:** 将持久化存储从 electron-store (JSON 文件) 迁移到 SQLite，利用关系型数据库替代 JSON blob 存储，实现高效的部分更新和查询能力。
+**Goal:** 将在线壁纸页面从无限滚动改为传统分页条，为我的收藏页面实现无限滚动分页，通过数据库层计算收藏状态
 
-**Key design decisions (from research):**
+**Target features:**
 
-- Use `node:sqlite` (Node.js 24.14+ built-in), NOT better-sqlite3 — zero external dependencies, no build config changes
-- Singleton `DatabaseSync` in `electron/main/database.ts`, lazy initialization
-- 5 tables: settings, search_params, download_history, collections, favorites
-- One-time migration from electron-store JSON to SQLite (idempotent, transactional, cold backup)
+#### 在线壁纸页面
+- 传统分页条 UI（页码导航，24张/页）
+- 显示总条目数（"共 X 张"）
+- 用 PageData 替换 TotalPageData 数据结构
+- 内存缓存已加载页面数据
+- 收藏状态由数据库查询返回（is_favorite 字段）
+- 不同步 URL 参数
 
-**Phase structure (5 phases):**
-| Phase | Name | Requirements |
-|-------|------|--------------|
-| 41 | Database Infrastructure | DBINFRA-01/02/03/04 |
-| 42 | Main Process + Store Handler Cutover | MPDIR-01/02, STIPC-01/02/03/04, REPO-01/02/03 |
-| 43 | Favorites & Collections Migration | REPO-04/05, VER-04 |
-| 44 | Migration Script | DBINFRA-05/06/07, VER-02 |
-| 45 | Cleanup & Final Verification | CLN-01/02/03/04/05/06, VER-01/03/05 |
+#### 我的收藏页面
+- 无限滚动分页 UI
+- SQLite LIMIT/OFFSET 分页查询
+- 侧边栏收藏数目响应式更新
+- 仅本地数据库数据源
 
-**Critical ordering constraints:**
-
-- Main process modules (download-queue.ts, download.handler.ts) directly import store — they must be cut over BEFORE generic store handler changes (enforced by plan ordering within Phase 42)
-- Migration script must be last — it depends on final schema from all prior phases
-- Cleanup must be last — cannot delete files with remaining consumers
-
-**Key risks:**
-
-- `node:sqlite` is Node.js Stability 1.1 — API change risk. Mitigated by using only stable core API (prepare/get/all/run/exec) and Repository layer insulation. Fallback: `@photostructure/sqlite` with identical API.
-
-### Phase 45 Decisions
-
-**From context gathering (2026-05-03):**
-
-- **D-01:** Phase 44 的两个 CRITICAL issues在 Phase 45 开头修复，作为第一个计划项
-- **D-02:** 全部清理推荐范围，不保留任何 electron-store 相关代码
-- **D-03:** 清理顺序：先修复 CRITICAL issues，再移除文件，最后清理依赖和类型定义
-- **D-04:** 使用手动功能测试验证
-- **D-09:** `electron/main/index.ts` 中移除 `import { store } from './store'` 和 `export { store }`
+**Key context:**
+- 当前在线壁纸使用 TotalPageData 无限滚动累积
+- 收藏页面当前一次性加载所有数据，无分页
+- 需要新增分页相关 IPC 通道
+- 收藏状态当前由前端 Set 计算，改为 SQL JOIN 返回
 
 ---
 
-*Updated: 2026-05-03 — Phase 45 context gathered, ready for planning*
+*Updated: 2026-05-04 — Milestone v6.0 started*

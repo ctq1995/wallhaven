@@ -8,19 +8,28 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 **收藏管理，分类随心** — 将喜欢的壁纸添加到自定义收藏夹，按主题分类管理
 
-## Current Milestone: v5.0 electron-store 到 SQLite 迁移
+## Current Milestone: v6.0 传统分页重构
 
-**Goal:** 将持久化存储从 electron-store（JSON 文件）迁移到 SQLite（node:sqlite，Node.js 内置模块），利用关系型数据库替代 JSON blob 存储，实现高效的部分更新和查询能力。
+**Goal:** 将在线壁纸页面从无限滚动改为传统分页条，为我的收藏页面实现无限滚动分页，通过数据库层计算收藏状态
 
 **Target features:**
-- 使用 node:sqlite（Node.js 内置，零外部依赖）建立数据库连接与初始化
-- 设计数据库表结构（settings、search_params、download_history、collections、favorites）
-- 实现数据迁移脚本（从 electron-store JSON 导入 SQLite）
-- Repository 层改造（用 SQLite 查询替换 electron-store IPC 调用）
-- IPC 处理程序改造（同步读取迁移到 SQLite）
-- 移除 electron-store 依赖和旧代码
+
+### 在线壁纸页面
+- 传统分页条 UI（页码导航，24张/页）
+- 显示总条目数（"共 X 张"）
+- 用 PageData 替换 TotalPageData 数据结构
+- 内存缓存已加载页面数据
+- 收藏状态由数据库查询返回（is_favorite 字段）
+- 不同步 URL 参数
+
+### 我的收藏页面
+- 无限滚动分页 UI
+- SQLite LIMIT/OFFSET 分页查询
+- 侧边栏收藏数目响应式更新
+- 仅本地数据库数据源
 
 **Shipped Milestones:**
+- v5.0 electron-store 到 SQLite 迁移 (2026-05-03) — 29 requirements, 5 phases
 - v2.0 架构重构 (2026-04-26) — 38 requirements, 5 phases
 - v2.1 下载断点续传 (2026-04-27) — 9 requirements, 4 phases
 - v2.2 Store 分层迁移 (2026-04-27) — 10 requirements, 4 phases
@@ -83,9 +92,9 @@ Wallhaven 壁纸浏览器是一款基于 Electron 的桌面壁纸浏览与下载
 
 ### Active
 
-<!-- v5.0 milestone requirements — defined via /gsd-new-milestone -->
+<!-- v6.0 milestone requirements — defined via /gsd-new-milestone -->
 
-Requirements for v5.0 electron-store → SQLite migration to be defined.
+Requirements for v6.0 传统分页重构 to be defined.
 
 ### Future
 
@@ -260,4 +269,4 @@ This document evolves at phase transitions and milestone boundaries.
 ---
 
 *创建时间：2025-04-25*
-*最后更新：2026-05-03 — v5.0 milestone started*
+*最后更新：2026-05-04 — v6.0 milestone started*
