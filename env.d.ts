@@ -161,6 +161,12 @@ interface ElectronAPI {
   favoritesMove: (params: { wallpaperId: string; fromCollectionId: string; toCollectionId: string }) => Promise<IpcResponse<FavoriteItem>>
   favoritesIsFavorite: (params: { wallpaperId: string }) => Promise<IpcResponse<boolean>>
   favoritesGetCollectionsForWallpaper: (params: { wallpaperId: string }) => Promise<IpcResponse<Collection[]>>
+  favoritesGetPaginated: (params: {
+    collectionId?: string
+    limit: number
+    offset: number
+  }) => Promise<IpcResponse<any>>
+  favoritesGetCounts: () => Promise<IpcResponse<Record<string, number>>>
 
   // 通用IPC通信
   send: (channel: string, data: any) => void

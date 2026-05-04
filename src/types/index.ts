@@ -89,7 +89,7 @@ export interface SearchBarProps {
  * WallpaperList 组件 Props
  */
 export interface WallpaperListProps {
-  pageData: PageData
+  pageData: import('./domain').PageData
   loading: boolean
   error: boolean
 }
